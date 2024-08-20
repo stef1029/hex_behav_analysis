@@ -513,7 +513,7 @@ class Cohort_folder:
 
 def main():
 
-    test_dir = Path(r"/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Portable_data")
+    test_dir = Path(r"D:\Behaviour\July_cohort_24\Portable_data")
 
     cohort = Cohort_folder(test_dir, multi = True, plot = True, portable_data = True)
 
