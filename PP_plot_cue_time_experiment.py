@@ -32,12 +32,21 @@ def plot_performance_by_angle(sessions,
     """
     # Define a color map
     viridis = plt.cm.get_cmap('viridis')
+    # predefined_colors = {
+    #     'Unlimited': viridis(0.0),
+    #     '1000ms': viridis(0.25),
+    #     '500ms': viridis(0.5),
+    #     '300ms': viridis(0.75),
+    #     '100ms': viridis(1.0)
+    # }
+
     predefined_colors = {
-        'Unlimited': viridis(0.0),
-        '1000ms': viridis(0.25),
-        '500ms': viridis(0.5),
-        '300ms': viridis(0.75),
-        '100ms': viridis(1.0)
+        '750ms': viridis(0.0),
+        '500ms': viridis(0.2),
+        '100ms': viridis(0.4),
+        '50ms': viridis(0.6),
+        '25ms': viridis(0.8),
+        '5ms': viridis(1.0)
     }
 
 
@@ -64,6 +73,7 @@ def plot_performance_by_angle(sessions,
         trials = {}
         total_trials = []
         for session in session_list:
+            print(session)
             mouse = session.session_dict['mouse_id']
             if mouse not in trials:
                 trials[mouse] = {'trials': []}
