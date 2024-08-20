@@ -60,9 +60,11 @@ class Cohort_folder:
                 check_list = []
                 nwb_file = str(self.find_file(session_folder, '.nwb'));
 
-                self.cohort["mice"][mouse]["sessions"][session]["nwb_file"] = nwb_file  
+                self.cohort["mice"][mouse]["sessions"][session]["NWB_file"] = nwb_file  
 
-                self.cohort["mice"][mouse]["sessions"][session]["phase"] = self.get_session_metadata(nwb_file)['phase']
+                self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"] = self.get_session_metadata(nwb_file)['phase']
+
+                self.cohort["mice"][mouse]["sessions"][session]["portable"] = True
 
     def init_raw_data(self):
 
@@ -110,15 +112,22 @@ class Cohort_folder:
         """
         phases = ["1", "2", "3", "3b", "3c", "4", "4b", "4c", "test", "5", "6", "7", "8", "9", "9b", "9c", "10"]
         phase_dict = {phase: {} for phase in phases}
-        
-        for mouse in self.cohort_concise["complete_data"]:
-            for session in self.cohort_concise["complete_data"][mouse]:
-                phase = self.cohort_concise["complete_data"][mouse][session]["Behaviour_phase"]
-                session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
-                phase_dict[phase][session] = {"path": session_path,
-                                              "total_trials": self.cohort_concise["complete_data"][mouse][session]["total_trials"],
-                                              "video_length": self.cohort_concise["complete_data"][mouse][session]["video_length"],
-                                              "mouse": mouse}
+        if self.portable_data == False:
+            for mouse in self.cohort_concise["complete_data"]:
+                for session in self.cohort_concise["complete_data"][mouse]:
+                    phase = self.cohort_concise["complete_data"][mouse][session]["Behaviour_phase"]
+                    session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
+                    phase_dict[phase][session] = {"path": session_path,
+                                                "total_trials": self.cohort_concise["complete_data"][mouse][session]["total_trials"],
+                                                "video_length": self.cohort_concise["complete_data"][mouse][session]["video_length"],
+                                                "mouse": mouse}
+        else:
+            for mouse in self.cohort["mice"]:
+                for session in self.cohort["mice"][mouse]["sessions"]:
+                    phase = self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"]
+                    session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
+                    phase_dict[phase][session] = {"path": session_path,
+                                                "mouse": mouse}
                 
         return phase_dict
 
@@ -310,7 +319,8 @@ class Cohort_folder:
             session_ID = session_folder.name
             cohort["mice"][mouse_ID]["sessions"][f"{session_ID}"] = {"directory": (str(session_folder)),
                                                                      "mouse_id": mouse_ID,
-                                                                     "session_id": session_ID}
+                                                                     "session_id": session_ID,
+                                                                     "portable": False}
 
         self.cohort = cohort
 

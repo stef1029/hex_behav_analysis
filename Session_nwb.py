@@ -21,19 +21,26 @@ class Session:
         try:
             self.session_dict = session_dict
 
-            # print("Loading session...")
+
+            
             self.session_directory = Path(self.session_dict.get('directory'))
 
             self.session_ID = self.session_dict.get('session_id')
+            print(f"Loading session {self.session_ID}...")
             
-            self.nwb_file_path = Path(self.session_dict.get('processed_data', {}).get('NWB_file'))
+            self.portable = self.session_dict['portable']
+
+            if self.portable == True:
+                self.nwb_file_path = Path(self.session_dict.get('NWB_file'))
+            
+            else:
+                self.nwb_file_path = Path(self.session_dict.get('processed_data', {}).get('NWB_file'))
+                self.DLC_coords_path = Path(self.session_dict.get('processed_data', {}).get('DLC', {}).get('coords_csv'))
 
             with NWBHDF5IO(str(self.nwb_file_path), 'r') as io:
                 nwbfile = io.read()
                 DLC_coords_present = 'behaviour_coords' in nwbfile.processing
             
-            if not DLC_coords_present:
-                self.DLC_coords_path = Path(self.session_dict.get('processed_data', {}).get('DLC', {}).get('coords_csv'))
 
             self.load_data()
 
