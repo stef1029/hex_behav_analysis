@@ -73,7 +73,6 @@ def plot_performance_by_angle(sessions,
         trials = {}
         total_trials = []
         for session in session_list:
-            print(session)
             mouse = session.session_dict['mouse_id']
             if mouse not in trials:
                 trials[mouse] = {'trials': []}

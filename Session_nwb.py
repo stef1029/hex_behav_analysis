@@ -608,7 +608,58 @@ class DetectTrials:
         if phase == "9c":
             trial_list = self.check_go_cue_activation(trial_list)
 
+        if phase == '10':
+            trial_list = self.merge_trials(trial_list)
+
         return trial_list
+    
+    def merge_trials(self, trial_list):
+        """
+        Merge trials in the list based on matching cue_start and cue_end times.
+        
+        Args:
+            trial_list (list): List of trial dictionaries, each containing 'cue_start', 'cue_end', and 'correct_port' keys.
+            
+        Returns:
+            list: Updated list of trials with merged trials.
+        """
+        merged_trials = []
+        skip_next = False
+
+        for i in range(len(trial_list) - 1):
+            if skip_next:
+                skip_next = False
+                continue
+
+            trial_1 = trial_list[i]
+            trial_2 = trial_list[i + 1]
+
+            # Compare the cue_start and cue_end times to 2 decimal places
+            if (round(trial_1['cue_start'], 2) == round(trial_2['cue_start'], 2)):# and
+                # round(trial_1['cue_end'], 2) == round(trial_2['cue_end'], 2)):
+
+                if (trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} and trial_2['correct_port'] == 'audio-1') or \
+                (trial_2['correct_port'] in {'1', '2', '3', '4', '5', '6'} and trial_1['correct_port'] == 'audio-1'):
+
+                    # Merge the trials
+                    merged_trial = trial_1 if trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} else trial_2
+                    merged_trial['catch'] = True
+                    merged_trials.append(merged_trial)
+                    
+                    skip_next = True  # Skip the next trial since it's already merged
+                else:
+                    trial_1['catch'] = False
+                    merged_trials.append(trial_1)
+            else:
+                trial_1['catch'] = False
+                merged_trials.append(trial_1)
+        
+        # Append the last trial if it wasn't merged
+        if not skip_next:
+            trial_list[-1]['catch'] = False
+            merged_trials.append(trial_list[-1])
+
+        return merged_trials
 
     def find_trials_cue(self, channel):
         """
