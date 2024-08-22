@@ -31,6 +31,7 @@ def plot_performance_by_angle(sessions,
     # Calculate performance for each bin
     def calc_performance(bins):
         return [sum(bins[key]) / len(bins[key]) if bins[key] else 0 for key in sorted(bins)]
+        # returns a list of averages for each key in bins
     
     # Load trial list:
     total_trials = []
@@ -120,29 +121,73 @@ def plot_performance_by_angle(sessions,
 
     else:
         for mouse in trials:
-            bins = {i: [] for i in range(-180, 180, bin_size)}
+            bins_normal = {i: [] for i in range(-180, 180, bin_size)}
+            bins_catch = {i: [] for i in range(-180, 180, bin_size)}
+
+            catch_count = 0
+            normal_count = 0
 
             for trial in trials[mouse]['trials']:
                 if trial["turn_data"] != None:
                     angle = trial["turn_data"]["cue_presentation_angle"]
-                    for bin in bins:
+                    for bin in bins_normal:
                         if angle < bin + bin_size and angle >= bin:
-                            if trial["next_sensor"] != {}:
-                                if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
-                                    bins[bin].append(1)
+                            if trial['catch'] == True:
+                                catch_count += 1
+                                if trial["next_sensor"] != {}:
+                                    if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
+                                        bins_catch[bin].append(1)
+                                    else:
+                                        bins_catch[bin].append(0)
                                 else:
-                                    bins[bin].append(0)
+                                    bins_catch[bin].append(0)
                             else:
-                                bins[bin].append(0)
+                                normal_count +=1
+                                if trial["next_sensor"] != {}:
+                                    if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
+                                        bins_normal[bin].append(1)
+                                    else:
+                                        bins_normal[bin].append(0)
+                                else:
+                                    bins_normal[bin].append(0)
+            # print(catch_count, normal_count)
 
-            trials[mouse]['performance'] = calc_performance(bins)
-            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
+            trials[mouse]['normal_performance'] = calc_performance(bins_normal)
+            trials[mouse]['catch_performance'] = calc_performance(bins_catch)
+            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins_normal)]
 
-        performance_data = np.array([trials[mouse]['performance'] for mouse in trials])
-        performance = np.mean(performance_data, axis=0)
-        performance_sd = np.std(performance_data, axis=0)
-        n = len(performance_data)
-        performance_sem = performance_sd / np.sqrt(n)
+        # Initialize the plotting_data dictionary
+        plotting_data = {}
+
+        # Process and store normal performance data
+        data_normal = {}
+        normal_performance_data = np.array([trials[mouse]['normal_performance'] for mouse in trials])
+        data_normal['performance_data'] = normal_performance_data
+        data_normal['performance_mean'] = np.mean(normal_performance_data, axis=0)
+        data_normal['performance_sd'] = np.std(normal_performance_data, axis=0)
+        data_normal['n'] = len(normal_performance_data)     # n mice
+        data_normal['performance_sem'] = data_normal['performance_sd'] / np.sqrt(data_normal['n'])
+
+        # Store normal data in the plotting_data dictionary
+        plotting_data['normal'] = data_normal
+
+        # Print normal performance mean for verification
+        print(f"Normal Performance Mean: {data_normal['performance_mean']}")
+
+        # Process and store catch performance data
+        data_catch = {}
+        catch_performance_data = np.array([trials[mouse]['catch_performance'] for mouse in trials])
+        data_catch['performance_data'] = catch_performance_data
+        data_catch['performance_mean'] = np.mean(catch_performance_data, axis=0)
+        data_catch['performance_sd'] = np.std(catch_performance_data, axis=0)
+        data_catch['n'] = len(catch_performance_data)       # n mice
+        data_catch['performance_sem'] = data_catch['performance_sd'] / np.sqrt(data_catch['n'])
+
+        # Store catch data in the plotting_data dictionary
+        plotting_data['catch'] = data_catch
+
+        # Print catch performance mean for verification
+        print(f"Catch Performance Mean: {data_catch['performance_mean']}")
 
     def plot_performance(bin_titles, performance, errors, title, color_map='viridis'):
         plt.figure(figsize=(10, 6))
@@ -215,38 +260,36 @@ def plot_performance_by_angle(sessions,
 
     if plot_mode == 'radial':
 
-        # Preparation of the data remains the same
+        # Preparation of the angles remains the same
         angles_deg = np.array(bin_titles, dtype=np.float64)  # Original angles, from -180 to 180
-        performance_data = np.array(performance)  # Assuming performance data is ready
-
-        # Adjust angles for plotting and convert to radians
         adjusted_angles_deg = angles_deg % 360  # Adjust for radial plot
         angles_rad = np.radians(adjusted_angles_deg)  # Convert to radians
-
-        # Append the start to the end to close the plot
-        angles_rad = np.append(angles_rad, angles_rad[0])
-        performance_data = np.append(performance_data, performance_data[0])
-        # same for sem and sd:
-        performance_sem = np.append(performance_sem, performance_sem[0])
-        performance_sd = np.append(performance_sd, performance_sd[0])
+        angles_rad = np.append(angles_rad, angles_rad[0])  # Append the start to the end to close the plot
 
         # Create radial plot
         plt.figure(figsize=(8, 8))
         ax = plt.subplot(111, polar=True)
 
-        # Polar plot with adjustments
-        ax.plot(angles_rad, performance_data, marker='o', color='royalblue')  # Add markers for data points
-        # ax.fill(angles_rad, performance_data, alpha=0.25)  # Fill for visual emphasis
+        # Define colors for different lines (you can adjust these)
+        colors = {
+            'normal': 'royalblue',
+            'catch': 'tomato'
+        }
 
-        # Adding the shaded region for standard deviation
-        if error_bars == 'SD':
-            ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd, color='skyblue', alpha=0.4)
-            # Add note saying it's SD:
-            ax.text(0.9, 0, '±SD', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
-        if error_bars == 'SEM':
-            ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem, color='skyblue', alpha=0.4)
-            ax.text(0.9, 0, '±SEM', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
+        # Iterate through the plotting data dictionary to plot both normal and catch data
+        for key, data in plotting_data.items():
+            performance_data = np.append(data['performance_mean'], data['performance_mean'][0])
+            performance_sem = np.append(data['performance_sem'], data['performance_sem'][0])
+            performance_sd = np.append(data['performance_sd'], data['performance_sd'][0])
 
+            # Plot the line for this dataset
+            ax.plot(angles_rad, performance_data, marker='o', color=colors[key], label=key.capitalize())
+
+            # Add the shaded region for standard deviation or SEM
+            if error_bars == 'SD':
+                ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd, color=colors[key], alpha=0.4)
+            elif error_bars == 'SEM':
+                ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem, color=colors[key], alpha=0.4)
 
         # Adjusting tick labels to reflect left (-) and right (+) turns
         tick_locs = np.radians(np.arange(-180, 181, 30)) % (2 * np.pi)  # Tick locations, adjusted for wrapping
@@ -260,12 +303,15 @@ def plot_performance_by_angle(sessions,
         ax.set_theta_zero_location('N')  # Zero degrees at the top for forward direction
         ax.set_theta_direction(1)  # Clockwise direction
 
-        # add text in bottom right:
-        text = f"Trials: {len(total_trials)} - Mice: {len(sessions)}"
+        # Add text in bottom right
+        text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
         ax.text(0, 0, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
         # Add title
         ax.set_title(title, va='bottom', fontsize=16)
 
-        # Optionally, save the plot with a specific filename
-        # plt.savefig("/cephfs2/srogers/test_output/performance_by_angle_radial.png", dpi=300)
+        # Add a legend
+        ax.legend(loc='upper right')
+
+        # Show the plot
+        plt.show()

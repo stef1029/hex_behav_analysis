@@ -121,7 +121,7 @@ def plot_performance_by_angle(sessions,
     else:
         for mouse in trials:
             bins = {i: [] for i in range(-180, 180, bin_size)}
-
+            bias = {i: [] for i in range(-180, 180, bin_size)}
             for trial in trials[mouse]['trials']:
                 if trial["turn_data"] != None:
                     angle = trial["turn_data"]["cue_presentation_angle"]
@@ -133,7 +133,7 @@ def plot_performance_by_angle(sessions,
                                 else:
                                     bins[bin].append(0)
                             else:
-                                bins[bin].append(0)
+                                bins[bin].append(0) 
 
             trials[mouse]['performance'] = calc_performance(bins)
             bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]

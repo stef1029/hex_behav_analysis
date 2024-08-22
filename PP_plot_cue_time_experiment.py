@@ -203,6 +203,8 @@ def plot_performance_by_angle(sessions,
                                         bins[bin].append(1)
                                     else:
                                         bins[bin].append(0)
+                                else:
+                                    bins[bin].append(0)
 
                 trials[mouse]['performance'] = calc_performance(bins)
                 bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
@@ -233,6 +235,8 @@ def plot_performance_by_angle(sessions,
                                         bins[bin].append(1)
                                     else:
                                         bins[bin].append(0)
+                                else:
+                                    bins[bin].append(0)
 
                 trials[mouse]['performance'] = calc_performance(bins)
                 bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]

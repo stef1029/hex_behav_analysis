@@ -600,7 +600,7 @@ class DetectTrials:
         # sort trial list by start time:
         trial_list.sort(key=lambda trial: trial["cue_start"])
 
-        trial_list = self.find_trials_sensor(trial_list)
+        trial_list = self.find_trials_sensor(trial_list, phase)
         for i, trial in enumerate(trial_list):
             trial["phase"] = phase
             # print(phase, i, trial['cue_start'])
@@ -613,9 +613,10 @@ class DetectTrials:
 
         return trial_list
     
+    
     def merge_trials(self, trial_list):
         """
-        Merge trials in the list based on matching cue_start and cue_end times.
+        Merge trials in the list based on matching cue_start and handle PWM dimming.
         
         Args:
             trial_list (list): List of trial dictionaries, each containing 'cue_start', 'cue_end', and 'correct_port' keys.
@@ -626,38 +627,56 @@ class DetectTrials:
         merged_trials = []
         skip_next = False
 
-        for i in range(len(trial_list) - 1):
+        i = 0
+        while i < len(trial_list) - 1:
             if skip_next:
                 skip_next = False
+                i += 1
                 continue
 
             trial_1 = trial_list[i]
             trial_2 = trial_list[i + 1]
 
-            # Compare the cue_start and cue_end times to 2 decimal places
-            if (round(trial_1['cue_start'], 2) == round(trial_2['cue_start'], 2)):# and
-                # round(trial_1['cue_end'], 2) == round(trial_2['cue_end'], 2)):
-
+            # Compare the cue_start times to 2 decimal places
+            if round(trial_1['cue_start'], 2) == round(trial_2['cue_start'], 2):
                 if (trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} and trial_2['correct_port'] == 'audio-1') or \
                 (trial_2['correct_port'] in {'1', '2', '3', '4', '5', '6'} and trial_1['correct_port'] == 'audio-1'):
-
-                    # Merge the trials
-                    merged_trial = trial_1 if trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} else trial_2
-                    merged_trial['catch'] = True
-                    merged_trials.append(merged_trial)
                     
-                    skip_next = True  # Skip the next trial since it's already merged
+                    # Determine the merged trial, and update the cue_end using the audio-1 trial
+                    led_trial = trial_1 if trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} else trial_2
+                    audio_trial = trial_1 if trial_1['correct_port'] == 'audio-1' else trial_2
+                    
+                    # Update the cue_end of the LED trial to match the audio trial
+                    led_trial['cue_end'] = audio_trial['cue_end']
+                    led_trial['next_sensor'] = audio_trial['next_sensor']
+                    
+                    # Mark the trial as a catch trial
+                    led_trial['catch'] = True
+                    
+                    # Remove any LED trials that fall within the time range of this catch trial
+                    merged_trials.append(led_trial)
+                    skip_next = True
+                    
+                    # Skip all trials with cue_start within the new led_trial['cue_start'] and led_trial['cue_end'] range
+                    for j in range(i + 2, len(trial_list)):
+                        if trial_list[j]['cue_start'] >= led_trial['cue_start'] and trial_list[j]['cue_start'] <= led_trial['cue_end']:
+                            skip_next = True
+                        else:
+                            break
+                    i = j
                 else:
                     trial_1['catch'] = False
                     merged_trials.append(trial_1)
+                    i += 1
             else:
                 trial_1['catch'] = False
                 merged_trials.append(trial_1)
-        
+                i += 1
+    
         # Append the last trial if it wasn't merged
-        if not skip_next:
-            trial_list[-1]['catch'] = False
-            merged_trials.append(trial_list[-1])
+        if not skip_next and i < len(trial_list):
+            trial_list[i]['catch'] = False
+            merged_trials.append(trial_list[i])
 
         return merged_trials
 
@@ -708,10 +727,9 @@ class DetectTrials:
         # ----------------------------------------------
         # Now I have all the cue events from the channels. Now I need to find correponding sensor touches within the time between the start of the cue and the start of the next one.
         # For each event in the LED list, go through each of the sensor channels and find the next event, and make a list of these.
-    def find_trials_sensor(self, trials):
+    def find_trials_sensor(self, trials, phase):
         with NWBHDF5IO(self.nwbfile_path, 'r') as io:
             nwbfile = io.read()
-
             for i in range(1, 7):
                 channel = f"SENSOR{i}"
 
@@ -723,9 +741,19 @@ class DetectTrials:
                 sensor_touches = []
 
                 for j, trial in enumerate(trials):
-                    start = trial["cue_start"]
-                    end = trials[j+1]["cue_start"] if j+1 < len(trials) else self.last_timestamp
-
+                    if phase == '10':
+                        start = trial['cue_end']    # start looking at the end of the trial because there will be a gap and this means the audio trials
+                                                    #    will see the sensors after them rather than the being blocked by the flickering led flase trials. 
+                    else:
+                        start = trial["cue_start"]
+                    # Find the next trial that starts after the current trial's cue_end
+                    end = self.last_timestamp  # Default to last timestamp if no subsequent trial meets the criteria
+                    for k in range(j + 1, len(trials)):
+                        if trials[k]['cue_start'] > trial['cue_end']:
+                            end = trials[k]['cue_start']
+                            break
+                    # if trial['correct_port'] == 'audio-1':
+                    # print(f"Checking timespan: {end - start}")
                     start_index = bisect.bisect_left(sensor_timestamps, start)
                     end_index = bisect.bisect_left(sensor_timestamps, end)
                     
