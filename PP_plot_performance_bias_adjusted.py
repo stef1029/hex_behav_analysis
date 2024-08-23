@@ -32,6 +32,10 @@ def plot_performance_by_angle(sessions,
     def calc_performance(bins):
         return [sum(bins[key]) / len(bins[key]) if bins[key] else 0 for key in sorted(bins)]
     
+    def calc_bias(bins):
+        # print(sum(bins))
+        return [sum(bins[key]) / len(session.trials)  if bins[key] else 1 for key in sorted(bins)]
+
     # Load trial list:
     total_trials = []
     for session in sessions:
@@ -122,20 +126,28 @@ def plot_performance_by_angle(sessions,
         for mouse in trials:
             bins = {i: [] for i in range(-180, 180, bin_size)}
             bias = {i: [] for i in range(-180, 180, bin_size)}
+
             for trial in trials[mouse]['trials']:
                 if trial["turn_data"] != None:
-                    angle = trial["turn_data"]["cue_presentation_angle"]
+                    cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
+                    port_touched_angle = trial["turn_data"]["port_touched_angle"]
                     for bin in bins:
-                        if angle < bin + bin_size and angle >= bin:
+                        # find performance to each angle based on cue presentation angle
+                        if cue_presentation_angle < bin + bin_size and cue_presentation_angle >= bin:
                             if trial["next_sensor"] != {}:
                                 if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
                                     bins[bin].append(1)
                                 else:
                                     bins[bin].append(0)
                             else:
-                                bins[bin].append(0) 
+                                bins[bin].append(0)
+                        # find the number of touches at each angle to see bias:
+                        if port_touched_angle != None:
+                            if port_touched_angle < bin + bin_size and port_touched_angle >= bin:
+                                bias[bin].append(1)
 
             trials[mouse]['performance'] = calc_performance(bins)
+            trials[mouse]['bias'] = calc_bias(bias)
             bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
 
         performance_data = np.array([trials[mouse]['performance'] for mouse in trials])
@@ -143,6 +155,22 @@ def plot_performance_by_angle(sessions,
         performance_sd = np.std(performance_data, axis=0)
         n = len(performance_data)
         performance_sem = performance_sd / np.sqrt(n)
+
+        bias_data = np.array([trials[mouse]['bias'] for mouse in trials])
+        bias = np.mean(bias_data, axis=0)
+        bias_sd = np.std(bias_data, axis=0)
+        n = len(bias_data)
+        bias_sem = bias_sd / np.sqrt(n)
+
+        epsilon = 1e-10
+        biased_performance_data = performance_data / (bias_data + epsilon)
+        biased_performance = np.mean(biased_performance_data, axis=0)
+        biased_performance_sd = np.std(biased_performance_data, axis=0)
+        n = len(biased_performance_data)
+        biased_performance_sem = biased_performance_sd / np.sqrt(n)
+
+        print(biased_performance)
+        performance = biased_performance
 
     def plot_performance(bin_titles, performance, errors, title, color_map='viridis'):
         plt.figure(figsize=(10, 6))
@@ -254,14 +282,14 @@ def plot_performance_by_angle(sessions,
 
         ax.set_xticks(tick_locs)
         ax.set_xticklabels(tick_labels)
-        ax.set_ylim(0, 1)
+        ax.set_ylim(0, 5)
 
         # Custom plot adjustments
         ax.set_theta_zero_location('N')  # Zero degrees at the top for forward direction
         ax.set_theta_direction(1)  # Clockwise direction
 
         # add text in bottom right:
-        text = f"Trials: {len(total_trials)} - Mice: {len(sessions)}"
+        text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
         ax.text(0, 0, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
         # Add title

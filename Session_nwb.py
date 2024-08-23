@@ -204,17 +204,31 @@ class Session:
             port = int(correct_port) - 1
             cue_presentation_angle = self.relative_angles[port] % 360
 
+            port_touched_angle = None
+            if trial['next_sensor'] != {}:
+                port_touched = trial['next_sensor'].get('sensor_touched')
+                
+                if port_touched != None:
+                    port_touched_angle = self.relative_angles[int(port_touched) - 1] % 360
+                    # print(port_touched_angle)
             if cue_presentation_angle > 180:
                 cue_presentation_angle -= 360
             elif cue_presentation_angle <= -180:
                 cue_presentation_angle += 360
+
+            if port_touched_angle != None:
+                if port_touched_angle > 180:
+                    port_touched_angle -= 360
+                elif port_touched_angle <= -180:
+                    port_touched_angle += 360
 
 
             # -------- RETURN DATA: ------------------------
             angle_data = {"bearing": theta_deg, 
                         "port_position": self.port_coordinates[port],
                         "midpoint": midpoint,
-                        "cue_presentation_angle": cue_presentation_angle}
+                        "cue_presentation_angle": cue_presentation_angle,
+                        "port_touched_angle": port_touched_angle}
 
             return angle_data
         else:
