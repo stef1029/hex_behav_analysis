@@ -508,16 +508,27 @@ class Cohort_folder:
     def find_OEAB_dir(self, directory, mouse):
         """
         Finds the OEAB data by looking for the folder that contains 'OEAB_recording'.
+        If not found, falls back to the old method which looks for a folder that 
+        isn't a DLC one and doesn't contain letters in its name.
         """
+        # Try the new method first
         if not self.multi:
             for file in directory.glob('*'):
                 if file.is_dir() and 'OEAB_recording' in file.name:
+                    return file
+            # Fallback to the old method if the new one fails
+            for file in directory.glob('*'):
+                if file.is_dir() and not re.search('[a-zA-Z]', file.name):
                     return file
             return None
         else:
             parent = directory.parent
             for file in parent.glob('*'):
                 if file.is_dir() and 'OEAB_recording' in file.name:
+                    return file
+            # Fallback to the old method if the new one fails
+            for file in parent.glob('*'):
+                if file.is_dir() and (not re.search('[a-zA-Z]', file.name) or file.name == 'New folder'):
                     return file
             return None
 

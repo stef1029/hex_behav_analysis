@@ -64,8 +64,7 @@ def main():
     # Set your source and destination directories here
     source_directory = Path(r'/cephfs2/srogers/March_training')
     destination_directory = Path(r'/cephfs2/srogers/Behaviour code/March_training_portable')
-
-
+    
     # Initialize cohort
     cohort = create_cohort_folder(source_directory)
 
