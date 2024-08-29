@@ -57,9 +57,14 @@ def process_and_rsync_files(src: Path, dst: Path, cohort: Cohort_folder):
 
 def main():
 
+    # # Set your source and destination directories here
+    # source_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Data')
+    # destination_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Portable_data')
+
     # Set your source and destination directories here
-    source_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Data')
-    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Portable_data')
+    source_directory = Path(r'/cephfs2/srogers/March_training')
+    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/March_training_portable')
+
 
     # Initialize cohort
     cohort = create_cohort_folder(source_directory)
