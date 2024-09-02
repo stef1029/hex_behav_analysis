@@ -71,5 +71,15 @@ def main():
     # Execute the processing and rsync process
     process_and_rsync_files(source_directory, destination_directory, cohort)
 
+    # # Set your source and destination directories here
+    source_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Data')
+    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Portable_data')
+
+    # Initialize cohort
+    cohort = create_cohort_folder(source_directory)
+
+    # Execute the processing and rsync process
+    process_and_rsync_files(source_directory, destination_directory, cohort)
+
 if __name__ == "__main__":
     main()

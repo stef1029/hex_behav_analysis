@@ -4,7 +4,7 @@ from pathlib import Path
 from Cohort_folder import Cohort_folder
 import json
 import numpy as np
-
+from collections import defaultdict
 
 
 
@@ -92,17 +92,30 @@ def plot_performance_by_angle(sessions,
         
         return total_trials, trials
 
-    data_sets = {}
     # cue_times = ['Unlimited', '1000ms', '500ms', '300ms', '100ms']
 
     data_sets = {}
 
     for session_list, cue_time in zip(sessions, cue_times):
-        total_trials, trials = get_trials(session_list)
+        total_trials, trials = get_trials(session_list) # trials is a dict with mouse sorted trials
+                                                        # total is all trials in a cue group
         if cue_time not in data_sets:
-            data_sets[cue_time] = {}
-        data_sets[cue_time]['total_trials'] = total_trials
-        data_sets[cue_time]['trials'] = trials
+            data_sets[cue_time] = {'total_trials': [], 'trials': defaultdict(list)}
+
+        data_sets[cue_time]['total_trials'].extend(total_trials)
+
+        # Merging dictionaries in trials
+        for mouse, trial_list in trials.items():
+            data_sets[cue_time]['trials'][mouse].extend(trial_list)
+
+    # After the loop, you can flatten `total_trials` and handle merging if necessary
+    for cue_time, data in data_sets.items():
+        # Flattening `total_trials` into a single list
+        data_sets[cue_time]['total_trials'] = [trial for sublist in data['total_trials'] for trial in sublist]
+
+    for key in data_sets['trials'].keys():
+        print(key)
+
 
     for cue_time in data_sets:
         # trials is a dict of mouse names and the trials that I'm interested in (all, visual or audio).
