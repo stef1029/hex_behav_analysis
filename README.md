@@ -121,20 +121,15 @@ cd your-repository
 
 ### 2. Create the Conda Environment
 
-Once you are in the project directory, use Conda to create the environment from the `environment.yml` file:
-
+Create the analysis environemt using the following command:  
 ```bash
-conda env create -f environment.yml
+conda create -n behaviour_analysis python==3.10 -y
 ```
 
-This will create a new Conda environment with all the required dependencies.
-
-### 3. Activate the Environment
-
-After the environment is created, activate it using:
-
+### 3. Install dependancies
+Activate the environment. Use pip install to add the necessary libraries:
 ```bash
-conda activate behaviour_analysis
+python -m pip install matplotlib numpy seaborn opencv-contrib-python ipykernal scipy pynwb==2.3.3
 ```
 
 ---
