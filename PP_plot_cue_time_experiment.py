@@ -41,11 +41,11 @@ def plot_performance_by_angle(sessions,
     # }
 
     predefined_colors = {
-        'unlimited': viridis(0.0),   # Assign a color for 'unlimited'
-        '1000ms': viridis(0.1),      # Assign a color for '1000ms'
-        '750ms': viridis(0.2),       # Keep existing color assignments
+        'unlimited': viridis(0.0),  
+        '1000ms': viridis(0.1),    
+        '750ms': viridis(0.2),   
         '500ms': viridis(0.4),
-        '300ms': viridis(0.5),       # Assign a color for '300ms'
+        '300ms': viridis(0.5),     
         '100ms': viridis(0.6),
         '50ms': viridis(0.7),
         '25ms': viridis(0.8),
@@ -59,19 +59,6 @@ def plot_performance_by_angle(sessions,
         return [sum(bins[key]) / len(bins[key]) if bins[key] else 0 for key in sorted(bins)]
     
     def get_trials(session_list):
-        # Load trial list:
-        # total_trials = []
-        # for session in session_list:
-        #     if cue_mode == 'both':
-        #         total_trials += session.trials
-        #     elif cue_mode == 'visual':
-        #         for trial in session.trials:
-        #             if 'audio' not in trial['correct_port']:
-        #                 total_trials.append(trial)
-        #     elif cue_mode == 'audio':
-        #         for trial in session.trials:
-        #             if 'audio' in trial['correct_port']:
-        #                 total_trials.append(trial)
 
         trials = {}
         total_trials = []
@@ -81,7 +68,6 @@ def plot_performance_by_angle(sessions,
             if mouse not in trials:
                 trials[mouse] = {'trials': []}
             if cue_mode == 'both':
-                # print(len(session.trials))
                 trials[mouse]['trials'] += session.trials
                 total_trials += session.trials
             elif cue_mode == 'visual':
@@ -99,6 +85,10 @@ def plot_performance_by_angle(sessions,
 
     # cue_times = ['Unlimited', '1000ms', '500ms', '300ms', '100ms']
 
+
+    # Datasets is a dictionary with cue times, and in each cue time is the mice that were used. 
+    # In each mouse is the trials. 
+    # Later I also add performance data to each mouse. 
     data_sets = {}
 
     for session_list, cue_time in zip(sessions, cue_times):

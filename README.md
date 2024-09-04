@@ -129,7 +129,10 @@ conda create -n behaviour_analysis python==3.10 -y
 ### 3. Install dependancies
 Activate the environment. Use pip install to add the necessary libraries:
 ```bash
-python -m pip install matplotlib numpy seaborn opencv-contrib-python ipykernal scipy pynwb==2.3.3 h5py==3.8.0
+python -m pip install pynwb==2.3.3
+```
+```bash
+conda install matplotlib numpy seaborn opencv-contrib-python scipy 
 ```
 
 ---
