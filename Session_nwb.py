@@ -762,10 +762,12 @@ class DetectTrials:
                         start = trial["cue_start"]
                     # Find the next trial that starts after the current trial's cue_end
                     end = self.last_timestamp  # Default to last timestamp if no subsequent trial meets the criteria
+
                     for k in range(j + 1, len(trials)):
                         if trials[k]['cue_start'] > trial['cue_end']:
                             end = trials[k]['cue_start']
                             break
+                        
                     # if trial['correct_port'] == 'audio-1':
                     # print(f"Checking timespan: {end - start}")
                     start_index = bisect.bisect_left(sensor_timestamps, start)

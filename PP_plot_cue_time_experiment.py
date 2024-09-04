@@ -41,10 +41,13 @@ def plot_performance_by_angle(sessions,
     # }
 
     predefined_colors = {
-        '750ms': viridis(0.0),
-        '500ms': viridis(0.2),
-        '100ms': viridis(0.4),
-        '50ms': viridis(0.6),
+        'unlimited': viridis(0.0),   # Assign a color for 'unlimited'
+        '1000ms': viridis(0.1),      # Assign a color for '1000ms'
+        '750ms': viridis(0.2),       # Keep existing color assignments
+        '500ms': viridis(0.4),
+        '300ms': viridis(0.5),       # Assign a color for '300ms'
+        '100ms': viridis(0.6),
+        '50ms': viridis(0.7),
         '25ms': viridis(0.8),
         '5ms': viridis(1.0)
     }
@@ -72,11 +75,13 @@ def plot_performance_by_angle(sessions,
 
         trials = {}
         total_trials = []
+        
         for session in session_list:
             mouse = session.session_dict['mouse_id']
             if mouse not in trials:
                 trials[mouse] = {'trials': []}
             if cue_mode == 'both':
+                # print(len(session.trials))
                 trials[mouse]['trials'] += session.trials
                 total_trials += session.trials
             elif cue_mode == 'visual':
@@ -101,23 +106,28 @@ def plot_performance_by_angle(sessions,
                                                         # total is all trials in a cue group
         if cue_time not in data_sets:
             data_sets[cue_time] = {'total_trials': [], 'trials': defaultdict(list)}
+            # print(f"adding {cue_time}")
 
+        # print(f"Num trials in {cue_time} = {len(total_trials)}")
         data_sets[cue_time]['total_trials'].extend(total_trials)
 
         # Merging dictionaries in trials
         for mouse, trial_list in trials.items():
-            data_sets[cue_time]['trials'][mouse].extend(trial_list)
+            # print(trial_lis/t.keys())
+            data_sets[cue_time]['trials'][mouse].extend(trial_list['trials'])
 
     # After the loop, you can flatten `total_trials` and handle merging if necessary
     for cue_time, data in data_sets.items():
         # Flattening `total_trials` into a single list
-        data_sets[cue_time]['total_trials'] = [trial for sublist in data['total_trials'] for trial in sublist]
+        # data_sets[cue_time]['total_trials'] = [trial for sublist in data['total_trials'] for trial in sublist]
+        data_sets[cue_time]['trials'] = {mouse: {'trials': trial_list} for mouse, trial_list in data['trials'].items()}
 
-    for key in data_sets['trials'].keys():
-        print(key)
+    # for key in data_sets.keys():
+    #     print(key)
 
 
     for cue_time in data_sets:
+        # print(cue_time)
         # trials is a dict of mouse names and the trials that I'm interested in (all, visual or audio).
         trials = data_sets[cue_time]['trials']
         # bin the trials into 30 degree bins, ranging from 180 to -180
@@ -155,7 +165,7 @@ def plot_performance_by_angle(sessions,
 
                 # Bin trials based on turn direction and angle:
                 # for each trial, get the cue_presentation_angle and use that to put the trial in the correct bin:
-                for trial in trials[mouse]['trials']:
+                for trial in trials[mouse]:
                     if trial["turn_data"] is not None:
                         # get angle:
                         angle = trial["turn_data"]["cue_presentation_angle"]
@@ -206,7 +216,7 @@ def plot_performance_by_angle(sessions,
             for mouse in trials:
                 bins = {i: [] for i in range(0, 180, bin_size)}
 
-                for trial in trials[mouse]['trials']:
+                for trial in trials[mouse]:
                     if trial["turn_data"] != None:
                         angle = abs(trial["turn_data"]["cue_presentation_angle"])
                         for bin in bins:
@@ -236,6 +246,7 @@ def plot_performance_by_angle(sessions,
         else:
             # if the plots are for the full range of angles then find performance for the full range:
             for mouse in trials:
+                # print(trials[mouse].keys())
                 bins = {i: [] for i in range(-180, 180, bin_size)}
 
                 for trial in trials[mouse]['trials']:
@@ -342,7 +353,7 @@ def plot_performance_by_angle(sessions,
 
         error_fill_color = 'skyblue'  # Shared color for the error fill
 
-        for cue_time in cue_times:
+        for cue_time in predefined_colors.keys():
             if cue_time not in data_sets:
                 continue
             bin_titles = data_sets[cue_time]['bin_titles']
