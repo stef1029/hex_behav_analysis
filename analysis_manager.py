@@ -68,12 +68,16 @@ class Process_Raw_Behaviour_Data:
             self.rig_id = int(self.sendkey_logs.rig_id)
         except:
             self.rig_id = 1
+
+        self.video_fps = self.sendkey_logs.video_fps
         
         session_metadata = {"rig_id": self.rig_id, 
                             "mouse_weight": self.sendkey_logs.mouse_weight, 
                             "behaviour_phase": self.sendkey_logs.behaviour_phase,
                             "cue_duration": self.sendkey_logs.cue_duration,
-                            "wait_duration": self.sendkey_logs.wait_duration,}
+                            "wait_duration": self.sendkey_logs.wait_duration,
+                            "video_fps": self.video_fps
+                            }
 
         self.OEAB_data = process_ADC_Recordings(self.OEAB_folder, self.rig_id)
 
@@ -185,7 +189,10 @@ class Process_Raw_Behaviour_Data:
         cap = cv.VideoCapture(str(self.raw_video_Path))
         self.true_video_framecount = cap.get(cv.CAP_PROP_FRAME_COUNT)
         cap.release()
-        fps = 30
+        if self.video_fps != None:
+            fps = self.video_fps
+        else:
+            fps = 30
         
         frame_ID_check = False
         # check if frame_IDs is a key:

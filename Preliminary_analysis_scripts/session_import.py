@@ -149,6 +149,10 @@ class Session:
 
         self.cue_duration = self.json_data.get('Cue duration')
         self.wait_duration = self.json_data.get('Wait duration')
+        self.video_fps = self.json_data.get('FPS')
+        self.catch_trial_type = self.json_data.get('Catch_trial_type')
+        self.catch_brightness = self.json_data.get('Catch_brightness')
+        self.catch_wait_time = self.json_data.get('Catch_wait')
 
         # if "Scales data" in self.json_data.keys():
         #     self.scales_data = self.json_data['Scales data']
