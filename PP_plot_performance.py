@@ -122,6 +122,7 @@ def plot_performance_by_angle(sessions,
 
     else:
         for mouse in trials:
+            print(mouse)
             bins = {i: [] for i in range(-180, 180, bin_size)}
 
             for trial in trials[mouse]['trials']:
@@ -263,7 +264,7 @@ def plot_performance_by_angle(sessions,
         ax.set_theta_direction(1)  # Clockwise direction
 
         # add text in bottom right:
-        text = f"Trials: {len(total_trials)} - Mice: {len(sessions)}"
+        text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
         ax.text(0, 0, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
         # Add title
