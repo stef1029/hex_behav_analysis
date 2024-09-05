@@ -36,30 +36,32 @@ def plot_performance_by_angle(sessions,
     total_trials = []
     for session in sessions:
         if cue_mode == 'both':
-            total_trials += session.trials
+            for trial in session.trials:
+                if not trial.get('catch', False):  # Check if 'catch' is False or not present
+                    total_trials.append(trial)
         elif cue_mode == 'visual':
             for trial in session.trials:
-                if 'audio' not in trial['correct_port']:
+                if 'audio' not in trial.get('correct_port', '') and not trial.get('catch', False):
                     total_trials.append(trial)
         elif cue_mode == 'audio':
             for trial in session.trials:
-                if 'audio' in trial['correct_port']:
+                if 'audio' in trial.get('correct_port', '') and not trial.get('catch', False):
                     total_trials.append(trial)
 
     trials = {}
     for session in sessions:
-        mouse = session.session_dict['mouse_id']
+        mouse = session.session_dict.get('mouse_id', 'unknown')  # Use 'unknown' if 'mouse_id' is missing
         if mouse not in trials:
             trials[mouse] = {'trials': []}
         if cue_mode == 'both':
-            trials[mouse]['trials'] += session.trials
+            trials[mouse]['trials'] += [trial for trial in session.trials if not trial.get('catch', False)]
         elif cue_mode == 'visual':
             for trial in session.trials:
-                if 'audio' not in trial['correct_port']:
+                if 'audio' not in trial.get('correct_port', '') and not trial.get('catch', False):
                     trials[mouse]['trials'].append(trial)
         elif cue_mode == 'audio':
             for trial in session.trials:
-                if 'audio' in trial['correct_port']:
+                if 'audio' in trial.get('correct_port', '') and not trial.get('catch', False):
                     trials[mouse]['trials'].append(trial)
 
 
@@ -261,7 +263,7 @@ def plot_performance_by_angle(sessions,
         ax.set_theta_direction(1)  # Clockwise direction
 
         # add text in bottom right:
-        text = f"Trials: {len(total_trials)} - Mice: {len(sessions)}"
+        text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
         ax.text(0, 0, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
         # Add title

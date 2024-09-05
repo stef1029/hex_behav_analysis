@@ -171,9 +171,6 @@ def plot_performance_by_angle(sessions,
         # Store normal data in the plotting_data dictionary
         plotting_data['normal'] = data_normal
 
-        # Print normal performance mean for verification
-        print(f"Normal Performance Mean: {data_normal['performance_mean']}")
-
         # Process and store catch performance data
         data_catch = {}
         catch_performance_data = np.array([trials[mouse]['catch_performance'] for mouse in trials])
@@ -186,8 +183,6 @@ def plot_performance_by_angle(sessions,
         # Store catch data in the plotting_data dictionary
         plotting_data['catch'] = data_catch
 
-        # Print catch performance mean for verification
-        print(f"Catch Performance Mean: {data_catch['performance_mean']}")
 
     def plot_performance(bin_titles, performance, errors, title, color_map='viridis'):
         plt.figure(figsize=(10, 6))

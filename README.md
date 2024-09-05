@@ -86,7 +86,68 @@
 
   - Currently, the model is stored at `config = r'/cephfs2/srogers/New_analysis_pipeline/training_videos/DLC_Project_231212_193535_wtjx285-2a_raw_MP-SRC-2024-01-09/config.yaml'`. This is specified in newSH.sh.
 
-- ## Post-processing:
+
+---
+# Post-processing:
+## Git repo installation and environment setup:
+
+### Analysis Environment Setup
+
+This guide provides instructions to set up the analysis environment for this project using Conda. Follow these steps to clone the repository and set up the environment.
+
+### Prerequisites
+
+Ensure you have the following installed on your machine:
+- [Git](https://git-scm.com/)
+- [Conda](https://docs.conda.io/en/latest/miniconda.html) (Miniconda or Anaconda)
+
+## Setup Instructions
+
+### 1. Clone the Repository
+
+First, clone this repository to your local machine using Git:
+
+```bash
+git clone https://github.com/your-username/your-repository.git
+```
+
+Replace `your-username` and `your-repository` with the actual GitHub username and repository name.
+
+Navigate into the cloned repository directory:
+
+```bash
+cd your-repository
+```
+
+### 2. Create the Conda Environment
+
+Create the analysis environemt using the following command:  
+```bash
+conda create -n behaviour_analysis python==3.10 -y
+```
+
+### 3. Install dependancies
+Activate the environment. Use pip install to add the necessary libraries:
+```bash
+python -m pip install pynwb==2.3.3
+```
+```bash
+conda install matplotlib numpy seaborn opencv-contrib-python scipy 
+```
+
+---
+
+### Troubleshooting
+
+If you encounter any issues during the environment setup, ensure that:
+- You have the latest version of Conda installed.
+- The `environment.yml` file is correctly formatted and located in the root directory of the project.
+
+For further assistance, refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/index.html).
+
+---
+
+## How post-processing works:
   - Post-processing relies primarily on **`Cohort_folder.py`** and **`Session.py`** as the layers through which the session folder data are accessed.
     - `Cohort_folder` usage:
         ```python
@@ -144,5 +205,5 @@
     - `PP-sorted_video.py` - Generation of cut videos showing trials rotated and sorted.
     - `Session.draw_LEDs()` - Function for generation of whole session videos with LED locations drawn on. Should really be its own script.
 
-# Script documentation:
+
 
