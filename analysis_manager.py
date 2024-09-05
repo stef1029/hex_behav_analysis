@@ -51,6 +51,7 @@ class Process_Raw_Behaviour_Data:
         ArduinoDAQ.json,
         OEAB folder,
         """
+
         start_time = time.perf_counter()
 
         self.data_folder_path = Path(self.session.get("directory"))
@@ -191,8 +192,11 @@ class Process_Raw_Behaviour_Data:
         cap.release()
         if self.video_fps != None:
             fps = self.video_fps
+            print(f"fps set to {fps}")
+
         else:
             fps = 30
+            print("fps set to 30")
         
         frame_ID_check = False
         # check if frame_IDs is a key:
@@ -242,6 +246,8 @@ class Process_Raw_Behaviour_Data:
         print(f"Video length: {round(self.true_video_framecount / fps) // 60} minutes, {round(self.true_video_framecount / fps) % 60} seconds")
         #print percentage dropped frames:
         dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
+        # print details about dropped frames:
+        print(f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
         if dropped_frames >= 30:
             raise Exception(f"Error: Too many dropped frames detected ({dropped_frames}%). Processing aborted.")
 
