@@ -6,35 +6,39 @@ import json
 import numpy as np
 
 
-
-
 def plot_performance_by_angle(sessions, 
-                              title = 'title', 
-                              bin_mode = 'manual', 
+                              title='title', 
+                              bin_mode='manual', 
                               num_bins=12, 
                               trials_per_bin=10, 
-                              plot_mode='radial', 
                               cue_mode='both',
-                              error_bars = 'SEM'):
+                              error_bars='SEM',
+                              plot_individual_mice=False,
+                              plot_bias=False):
     """
     This function takes a list of sessions and plots the performance by angle of all trials in the sessions given.
+    
     ### Inputs: 
-    - cohort: Cohort_folder object
     - sessions: list of session objects (Session class already loaded)
     - title: title of the plot
     - bin_mode: 'manual' (->set num_bins), 'rice', 'tpb' (trials per bin ->set tpb value) -  to choose the method of binning
     - num_bins: number of bins to divide the angles into
-    - trials_per_bin: number of trials per bin for tbp bin mode.
-    - plot_mode: 'radial' or 'bar' to choose the type of plot
+    - trials_per_bin: number of trials per bin for tbp bin mode
     - cue_mode: 'both', 'visual' or 'audio' to choose the type of cue to plot
+    - error_bars: 'SEM' or 'SD' for error bars
+    - plot_individual_mice: whether to plot each mouse individually as lines
+    - plot_bias: whether to plot raw bias instead of bias-adjusted performance
     """
     # Calculate performance for each bin
     def calc_performance(bins):
         return [sum(bins[key]) / len(bins[key]) if bins[key] else 0 for key in sorted(bins)]
     
-    def calc_bias(bins):
-        # print(sum(bins))
-        return [sum(bins[key]) / len(session.trials)  if bins[key] else 1 for key in sorted(bins)]
+    def calc_bias(bins, total_trials):
+        """
+        Takes the bins which contain how many touches went to each angle, 
+        and the total number of trials for that mouse.
+        """
+        return [sum(bins[key]) / total_trials if bins[key] else 1 for key in sorted(bins)]
 
     # Load trial list:
     total_trials = []
@@ -55,6 +59,8 @@ def plot_performance_by_angle(sessions,
     trials = {}
     for session in sessions:
         mouse = session.session_dict.get('mouse_id', 'unknown')  # Use 'unknown' if 'mouse_id' is missing
+        if mouse == 'wtjp254-4b':
+            continue
         if mouse not in trials:
             trials[mouse] = {'trials': []}
         if cue_mode == 'both':
@@ -83,219 +89,140 @@ def plot_performance_by_angle(sessions,
     bin_size = round(360 / num_bins)
 
     bin_titles = []
-    performance = []
     
-    if plot_mode == 'bar_split' or plot_mode == 'bar_split_overlay':
+    for mouse in trials:
+        bins = {i: [] for i in range(-180, 180, bin_size)}
+        bias = {i: [] for i in range(-180, 180, bin_size)}
 
-        for mouse in trials:
-
-            left_bins = {i: [] for i in range(0, 180, bin_size)}
-            right_bins = {i: [] for i in range(0, 180, bin_size)}
-
-            # Bin trials based on turn direction and angle
-            for trial in trials[mouse]['trials']:
-                if trial["turn_data"] is not None:
-                    angle = trial["turn_data"]["cue_presentation_angle"]
-                    if trial["next_sensor"] != {}:
-                        correct = int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1])
-                    else:
-                        correct = 0
-                        
-                    if angle < 0:  # Left turn
-                        bin_index = abs(angle) // bin_size * bin_size
-                        left_bins[bin_index].append(correct)
-                    elif angle > 0:  # Right turn
-                        bin_index = angle // bin_size * bin_size
-                        right_bins[bin_index].append(correct)
-
-            trials[mouse]['left_performance'] = calc_performance(left_bins)
-            trials[mouse]['right_performance'] = calc_performance(right_bins)
-            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(left_bins)] 
-
-        left_performance_data = np.array([trials[mouse]['left_performance'] for mouse in trials])
-        left_performance = np.mean(left_performance_data, axis=0)
-        left_performance_sd = np.std(left_performance_data, axis=0)
-        n = len(left_performance_data)
-        left_performance_sem = left_performance_sd / np.sqrt(n)
-
-        right_performance_data = np.array([trials[mouse]['right_performance'] for mouse in trials])
-        right_performance = np.mean(right_performance_data, axis=0)
-        right_performance_sd = np.std(right_performance_data, axis=0)
-        n = len(left_performance_data)
-        right_performance_sem = right_performance_sd / np.sqrt(n)
-
-    else:
-        for mouse in trials:
-            bins = {i: [] for i in range(-180, 180, bin_size)}
-            bias = {i: [] for i in range(-180, 180, bin_size)}
-
-            for trial in trials[mouse]['trials']:
-                if trial["turn_data"] != None:
-                    cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
-                    port_touched_angle = trial["turn_data"]["port_touched_angle"]
-                    for bin in bins:
-                        # find performance to each angle based on cue presentation angle
-                        if cue_presentation_angle < bin + bin_size and cue_presentation_angle >= bin:
-                            if trial["next_sensor"] != {}:
-                                if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
-                                    bins[bin].append(1)
-                                else:
-                                    bins[bin].append(0)
+        mouse_total_trials = len(trials[mouse]['trials'])
+        for trial in trials[mouse]['trials']:
+            if trial["turn_data"] is not None:
+                cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
+                port_touched_angle = trial["turn_data"]["port_touched_angle"]
+                for bin in bins:
+                    # find performance to each angle based on cue presentation angle
+                    if cue_presentation_angle < bin + bin_size and cue_presentation_angle >= bin:
+                        if trial["next_sensor"] != {}:
+                            if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
+                                bins[bin].append(1)
                             else:
                                 bins[bin].append(0)
-                        # find the number of touches at each angle to see bias:
-                        if port_touched_angle != None:
-                            if port_touched_angle < bin + bin_size and port_touched_angle >= bin:
-                                bias[bin].append(1)
+                        else:
+                            bins[bin].append(0)
+                    # find the number of touches at each angle to see bias:
+                    if port_touched_angle is not None:
+                        if port_touched_angle < bin + bin_size and port_touched_angle >= bin:
+                            bias[bin].append(1)
 
-            trials[mouse]['performance'] = calc_performance(bins)
-            trials[mouse]['bias'] = calc_bias(bias)
-            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
+        trials[mouse]['performance'] = calc_performance(bins)
+        trials[mouse]['bias'] = calc_bias(bias, mouse_total_trials)
+        bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
 
-        performance_data = np.array([trials[mouse]['performance'] for mouse in trials])
-        performance = np.mean(performance_data, axis=0)
-        performance_sd = np.std(performance_data, axis=0)
-        n = len(performance_data)
-        performance_sem = performance_sd / np.sqrt(n)
+    performance_data = np.array([trials[mouse]['performance'] for mouse in trials])
+    performance = np.mean(performance_data, axis=0)
+    performance_sd = np.std(performance_data, axis=0)
+    n = len(performance_data)
+    performance_sem = performance_sd / np.sqrt(n)
 
-        bias_data = np.array([trials[mouse]['bias'] for mouse in trials])
-        bias = np.mean(bias_data, axis=0)
-        bias_sd = np.std(bias_data, axis=0)
-        n = len(bias_data)
-        bias_sem = bias_sd / np.sqrt(n)
+    bias_data = np.array([trials[mouse]['bias'] for mouse in trials])
+    bias = np.mean(bias_data, axis=0)
 
-        epsilon = 1e-10
-        biased_performance_data = performance_data / (bias_data + epsilon)
-        biased_performance = np.mean(biased_performance_data, axis=0)
-        biased_performance_sd = np.std(biased_performance_data, axis=0)
-        n = len(biased_performance_data)
-        biased_performance_sem = biased_performance_sd / np.sqrt(n)
+    # Normalize the bias so that the sum of all biases equals 1
+    bias_sum = np.sum(bias)
+    if bias_sum > 0:
+        bias = bias / bias_sum  # Normalize bias
 
-        print(biased_performance)
-        performance = biased_performance
+    bias_sd = np.std(bias_data, axis=0)
+    n = len(bias_data)
+    bias_sem = bias_sd / np.sqrt(n)
 
-    def plot_performance(bin_titles, performance, errors, title, color_map='viridis'):
-        plt.figure(figsize=(10, 6))
-        plt.style.use('ggplot')
+    epsilon = 1e-10
+    biased_performance_data = performance_data / (bias_data + epsilon)
+    biased_performance = np.mean(biased_performance_data, axis=0)
+    biased_performance_sd = np.std(biased_performance_data, axis=0)
+    biased_performance_sem = biased_performance_sd / np.sqrt(n)
 
-        # Use the color map for the line color
-        colors = plt.cm.get_cmap(color_map, len(bin_titles))
+    # Preparation of the data for plotting remains the same
+    angles_deg = np.array(bin_titles, dtype=np.float64)  # Original angles, from -180 to 180
 
-        # Convert bin titles to numeric if they are not already, for plotting
-        bin_numeric = np.array(bin_titles, dtype=float)
+    # Adjust angles for plotting and convert to radians
+    adjusted_angles_deg = angles_deg % 360  # Adjust for radial plot
+    angles_rad = np.radians(adjusted_angles_deg)  # Convert to radians
 
-        # Create a line plot with error bars
-        plt.errorbar(bin_numeric, performance, yerr=errors, fmt='o-', color='royalblue', ecolor='lightsteelblue', elinewidth=3, capsize=0, linestyle='-', linewidth=2)
-        plt.text(0, 0, '±SEM', transform=plt.gca().transAxes, fontsize=12, verticalalignment='top', color='black')
-        plt.xlabel('Turn Angle (degrees)', fontsize=14)
-        plt.ylabel('Performance', fontsize=14)
-        plt.title(title, fontsize=16)
+    # Append the start to the end to close the plot
+    angles_rad = np.append(angles_rad, angles_rad[0])
 
-        # Set the x-ticks to correspond to bin_titles
-        plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(0, 180)
-        plt.ylim(0, 1)
+    # Create radial plot
+    plt.figure(figsize=(8, 8))
+    ax = plt.subplot(111, polar=True)
 
-        plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
-        plt.tight_layout()
-        plt.show()
+    if plot_individual_mice:
+        # Plot individual mice performance or bias lines without error bars
+        for mouse in trials:
+            if plot_bias:
+                # Plot raw bias for each mouse
+                mouse_bias_data = np.array(trials[mouse]['bias'])
+                mouse_bias_data = np.append(mouse_bias_data, mouse_bias_data[0])  # Close the plot
+                ax.plot(angles_rad, mouse_bias_data, marker='o', label=f'Mouse {mouse} (Bias)')
+            else:
+                # Plot bias-adjusted performance for each mouse
+                mouse_performance_data = np.array(trials[mouse]['performance'])
+                mouse_bias_data = np.array(trials[mouse]['bias'])
 
-    def plot_performance_multi(bin_titles, left_performance, left_errors, right_performance, right_errors, left_title, right_title, color_map='viridis'):
-        plt.figure(figsize=(10, 6))
-        plt.style.use('ggplot')
+                # Bias-adjust the performance data for each mouse
+                mouse_biased_performance_data = mouse_performance_data / (mouse_bias_data + epsilon)
+                mouse_biased_performance_data = np.append(mouse_biased_performance_data, mouse_biased_performance_data[0])
+                ax.plot(angles_rad, mouse_biased_performance_data, marker='o', label=f'Mouse {mouse} (Performance)')
 
-        # Use the color map for the line color
-        colors = plt.cm.get_cmap(color_map, len(bin_titles))
+        # Add a legend to differentiate between mice
+        ax.legend(loc='upper right')
+    
+    else:
+        # Plot the average bias or bias-adjusted performance
+        if plot_bias:
+            # Plot the average raw bias
+            bias_data = np.append(bias, bias[0])
+            ax.plot(angles_rad, bias_data, marker='o', color='royalblue', label='Average Bias')
+        else:
+            # Plot the average bias-adjusted performance
+            biased_performance_data = np.append(biased_performance, biased_performance[0])
+            biased_performance_sem = np.append(biased_performance_sem, biased_performance_sem[0])
+            biased_performance_sd = np.append(biased_performance_sd, biased_performance_sd[0])
 
-        # Convert bin titles to numeric if they are not already, for plotting
-        bin_numeric = np.array(bin_titles, dtype=float)
+            ax.plot(angles_rad, biased_performance_data, marker='o', color='royalblue', label='Average Performance')
 
-        # Create a line plot with error bars
-        plt.errorbar(bin_numeric, left_performance, yerr=left_errors, fmt='o-', color='royalblue', ecolor='lightsteelblue', elinewidth=3, capsize=0, linestyle='-', linewidth=2, label=left_title)
-        plt.errorbar(bin_numeric, right_performance, yerr=right_errors, fmt='o-', color='darkorange', ecolor='moccasin', elinewidth=3, capsize=0, linestyle='-', linewidth=2, label=right_title)
-        plt.text(0, -0.1, '±SEM', transform=plt.gca().transAxes, fontsize=12, verticalalignment='top', color='black')
-        plt.xlabel('Turn Angle (degrees)', fontsize=14)
-        plt.ylabel('Performance', fontsize=14)
-        plt.title(title, fontsize=16)
+            # Adding the shaded region for standard deviation or standard error of the mean
+            if error_bars == 'SD':
+                ax.fill_between(angles_rad, 
+                                biased_performance_data - biased_performance_sd, 
+                                biased_performance_data + biased_performance_sd, 
+                                color='skyblue', alpha=0.4)
+                ax.text(0.9, 0, '±SD', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
-        # Set the x-ticks to correspond to bin_titles
-        plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(0, 180)
-        plt.ylim(0, 1)
+            if error_bars == 'SEM':
+                ax.fill_between(angles_rad, 
+                                biased_performance_data - biased_performance_sem, 
+                                biased_performance_data + biased_performance_sem, 
+                                color='skyblue', alpha=0.4)
+                ax.text(0.9, 0, '±SEM', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
-        plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+    # Adjusting tick labels to reflect left (-) and right (+) turns
+    tick_locs = np.radians(np.arange(-180, 181, 30)) % (2 * np.pi)  # Tick locations, adjusted for wrapping
+    tick_labels = [f"{int(deg)}" for deg in np.arange(-180, 181, 30)]  # Custom labels from -180 to 180
 
-    if plot_mode == 'bar_split':
-        
-        plot_performance(bin_titles, left_performance, left_performance_sem, 'Left Turn Performance')
-        plot_performance(bin_titles, right_performance, right_performance_sem, 'Right Turn Performance')
+    ax.set_xticks(tick_locs)
+    ax.set_xticklabels(tick_labels)
 
-    if plot_mode == 'bar_split_overlay':
-        plot_performance_multi(bin_titles, left_performance, left_performance_sem, right_performance, right_performance_sem, 'Left Turn Performance', 'Right Turn Performance')
+    # Custom plot adjustments
+    ax.set_theta_zero_location('N')  # Zero degrees at the top for forward direction
+    ax.set_theta_direction(1)  # Clockwise direction
 
-    # Bar plot:
-    if plot_mode == 'bar':
+    # Add text in bottom right with the number of trials and mice
+    text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
+    ax.text(0, 0, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
-        plot_performance(bin_titles, performance, performance_sem, title)
+    # Add title
+    ax.set_title(title, va='bottom', fontsize=16)
 
-    # Radial Plot:
-
-    if plot_mode == 'radial':
-
-        # Preparation of the data remains the same
-        angles_deg = np.array(bin_titles, dtype=np.float64)  # Original angles, from -180 to 180
-        performance_data = np.array(performance)  # Assuming performance data is ready
-
-        # Adjust angles for plotting and convert to radians
-        adjusted_angles_deg = angles_deg % 360  # Adjust for radial plot
-        angles_rad = np.radians(adjusted_angles_deg)  # Convert to radians
-
-        # Append the start to the end to close the plot
-        angles_rad = np.append(angles_rad, angles_rad[0])
-        performance_data = np.append(performance_data, performance_data[0])
-        # same for sem and sd:
-        performance_sem = np.append(performance_sem, performance_sem[0])
-        performance_sd = np.append(performance_sd, performance_sd[0])
-
-        # Create radial plot
-        plt.figure(figsize=(8, 8))
-        ax = plt.subplot(111, polar=True)
-
-        # Polar plot with adjustments
-        ax.plot(angles_rad, performance_data, marker='o', color='royalblue')  # Add markers for data points
-        # ax.fill(angles_rad, performance_data, alpha=0.25)  # Fill for visual emphasis
-
-        # Adding the shaded region for standard deviation
-        if error_bars == 'SD':
-            ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd, color='skyblue', alpha=0.4)
-            # Add note saying it's SD:
-            ax.text(0.9, 0, '±SD', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
-        if error_bars == 'SEM':
-            ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem, color='skyblue', alpha=0.4)
-            ax.text(0.9, 0, '±SEM', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
-
-
-        # Adjusting tick labels to reflect left (-) and right (+) turns
-        tick_locs = np.radians(np.arange(-180, 181, 30)) % (2 * np.pi)  # Tick locations, adjusted for wrapping
-        tick_labels = [f"{int(deg)}" for deg in np.arange(-180, 181, 30)]  # Custom labels from -180 to 180
-
-        ax.set_xticks(tick_locs)
-        ax.set_xticklabels(tick_labels)
-        ax.set_ylim(0, 5)
-
-        # Custom plot adjustments
-        ax.set_theta_zero_location('N')  # Zero degrees at the top for forward direction
-        ax.set_theta_direction(1)  # Clockwise direction
-
-        # add text in bottom right:
-        text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
-        ax.text(0, 0, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
-
-        # Add title
-        ax.set_title(title, va='bottom', fontsize=16)
-
-        # Optionally, save the plot with a specific filename
-        # plt.savefig("/cephfs2/srogers/test_output/performance_by_angle_radial.png", dpi=300)
+    # Display the plot
+    plt.show()

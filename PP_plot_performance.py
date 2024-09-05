@@ -122,7 +122,6 @@ def plot_performance_by_angle(sessions,
 
     else:
         for mouse in trials:
-            print(mouse)
             bins = {i: [] for i in range(-180, 180, bin_size)}
 
             for trial in trials[mouse]['trials']:
