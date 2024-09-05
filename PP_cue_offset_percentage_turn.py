@@ -3,18 +3,14 @@ import numpy as np
 import math
 from collections import defaultdict
 
-# Calculate the shortest angular difference (to avoid rollovers)
-def shortest_angular_difference(start_angle, end_angle):
-    diff = (start_angle - end_angle + 180) % 360 - 180
-    return diff if diff != -180 else 180
-
 def mouse_heading_cue_offset(sessions,
                              cue_times, 
                              title='title', 
                              start_angle='all',
                              angle_mode='normal',
-                             offset = 0,
-                             cue_mode='both'):
+                             offset=0,
+                             cue_mode='both',
+                             plot_individual_mice=False):
     """
     ### Inputs:
     - sessions: list of session objects
@@ -23,22 +19,11 @@ def mouse_heading_cue_offset(sessions,
     - plot_type: default: 'line', or 'radial'
     - angle_mode: default: 'normal', or 'delta'
     - offset: default: 0, or a value to add to the cue offset time to get the time to get the heading angle at.
-
-    This function takes the list of sessions to use and extracts the trials per mouse.
-    Split trials into successful and unsuccessful trials.
-    Get mouse heading at cue offset time, s
+    - plot_individual_mice: whether to plot each mouse's data individually
     """
-
+    
     # Define a color map
     viridis = plt.cm.get_cmap('viridis')
-    # predefined_colors = {
-    #     'Unlimited': viridis(0.0),
-    #     '1000ms': viridis(0.25),
-    #     '500ms': viridis(0.5),
-    #     '300ms': viridis(0.75),
-    #     '100ms': viridis(1.0)
-    # }
-
     predefined_colors = {
         'unlimited': viridis(0.0),  
         '1000ms': viridis(0.1),    
@@ -52,12 +37,12 @@ def mouse_heading_cue_offset(sessions,
     }
 
     def get_trials(session_list):
-
         trials = {}
         total_trials = []
-        
         for session in session_list:
             mouse = session.session_dict['mouse_id']
+            if mouse =='wtjx261-2b' or mouse == 'wtjx261-2a':
+                continue
             if mouse not in trials:
                 trials[mouse] = {'trials': []}
             if cue_mode == 'both':
@@ -77,47 +62,20 @@ def mouse_heading_cue_offset(sessions,
                         trial['session_object'] = session
                         trials[mouse]['trials'].append(trial)
                         total_trials.append(trial)
-        
         return total_trials, trials
-    
 
-    """
-    Datasets is a dictionary with cue times, and in each cue time is the mice that were used. 
-    In each mouse is the trials. 
-    Later I also add performance data to each mouse. 
-    """
     data_sets = {}
-
     for session_list, cue_time in zip(sessions, cue_times):
-        # get_trials is a way of sorting the session list into a mouse based dictionary.
-        total_trials, trials = get_trials(session_list) # trials is a dict with mouse sorted trials
-                                                        # total is all trials in a cue group
+        total_trials, trials = get_trials(session_list)
         if cue_time not in data_sets:
             data_sets[cue_time] = {'total_trials': [], 'trials': defaultdict(list)}
-            # print(f"adding {cue_time}")
 
-        # print(f"Num trials in {cue_time} = {len(total_trials)}")
         data_sets[cue_time]['total_trials'].extend(total_trials)
-
-        # Merging dictionaries in trials
         for mouse, trial_list in trials.items():
-            # print(trial_lis/t.keys())
             data_sets[cue_time]['trials'][mouse].extend(trial_list['trials'])
 
-    # After the loop, you can flatten `total_trials` and handle merging if necessary
     for cue_time, data in data_sets.items():
-        # Flattening `total_trials` into a single list
-        # data_sets[cue_time]['total_trials'] = [trial for sublist in data['total_trials'] for trial in sublist]
         data_sets[cue_time]['trials'] = {mouse: {'trials': trial_list} for mouse, trial_list in data['trials'].items()}
-
-    # ok so now data_sets has the cue times and mice, and each mouse just has all it's trials. 
-
-
-    # for each trial in successful trials, get the correct port, get the dlc data,
-    # get cue offset time, and then grab the head angle at that time.
-    # then use the calibrated angles to get the angle that mouse was facing relative to the correct port.
-    # Append this to the correct bin.
-
 
     # Sort trials into successful and unsuccessful trials:
     for cue_time in data_sets:
@@ -139,93 +97,42 @@ def mouse_heading_cue_offset(sessions,
             data_sets[cue_time]['trials'][mouse]['unsuccessful_trials'] = unsuccessful_trials
             data_sets[cue_time]['trials'][mouse]['timeouts'] = timeouts
 
-    num_bins = 12
-    bin_size = round(180 / num_bins)
-
     def get_data(trials, mouse_id):
-        """
-        For each trial, grab the cue start heading, and the cue end heading. Get the difference between those. 
-        That value will be a percentage of the cue presentation angle. Find that and append it to a list.
-        Then take an average of that list and return it.
-        """
-        
         percentages = []
-
         for trial in trials:
             session = trial['session_object']
-            rig_id = session.rig_id
-            correct_port = int(trial['correct_port'][-1]) - 1
             dlc_data = trial.get('DLC_data')
             if len(trial['video_frames']) > 0:
-                dlc_data = trial.get('DLC_data')
-                timestamps = dlc_data['timestamps']
                 cue_offset_time = trial['cue_end'] + offset
                 start_angle = trial['turn_data']['cue_presentation_angle']
 
                 mouse_start_bearing = trial['turn_data']['bearing']
 
-                # get timestamps from dlc data:
+                timestamps = dlc_data['timestamps']
                 index = np.searchsorted(timestamps, cue_offset_time, side='left') - 1
-
                 cue_offset_coords = dlc_data.iloc[index]
 
-                # to get mouse heading, take the ear coords, find angle between that and the nose coords, and then add 90 degrees to that angle.
                 left_ear_coords = (cue_offset_coords["left_ear"]["x"], cue_offset_coords["left_ear"]["y"])
-
                 right_ear_coords = (cue_offset_coords["right_ear"]["x"], cue_offset_coords["right_ear"]["y"])
 
                 vector_x = right_ear_coords[0] - left_ear_coords[0]
                 vector_y = right_ear_coords[1] - left_ear_coords[1]
 
-                # Calculate the angle relative to the positive x-axis
                 theta_rad = math.atan2(-vector_y, vector_x)
-                theta_deg = math.degrees(theta_rad)
-                theta_deg = (theta_deg + 90) % 360
+                theta_deg = (math.degrees(theta_rad) + 90) % 360
 
-                # Calculating the midpoint
                 midpoint_x = (left_ear_coords[0] + right_ear_coords[0]) / 2
                 midpoint_y = (left_ear_coords[1] + right_ear_coords[1]) / 2
 
-                # Midpoint coordinates
-                midpoint = (midpoint_x, midpoint_y)
-                
-                theta_rad = math.radians(theta_deg)
-                eyes_offset = 40
-                # Calculate the directional offsets using cosine and sine
-                offset_x = eyes_offset * math.cos(theta_rad)  # Offset along x based on heading
-                offset_y = eyes_offset * math.sin(theta_rad)  # Offset along y based on heading
-
-                # New midpoint coordinates after applying the offset
-                new_midpoint_x = midpoint_x + offset_x
-                new_midpoint_y = midpoint_y - offset_y  # Subtract because y-coordinates increase downwards in image coordinates
-
-                # New midpoint
-                midpoint = (new_midpoint_x, new_midpoint_y)
-
-                # -------- GET CUE PRESENTATION ANGLE FROM MOUSE HEADING: ------------------------
-
                 port_coordinates = session.port_coordinates
-                cue_onset_relative_angles = session.relative_angles
-
                 cue_offset_relative_angles = []
-                # Convert mouse heading to radians for calculation
                 mouse_heading_rad = np.deg2rad(theta_deg)
 
                 for port_x, port_y in port_coordinates:
-                    # Calculate vector from midpoint to the port
-                    vector_x = port_x - midpoint[0]
-                    vector_y = port_y - midpoint[1]
-
-                    # Calculate the angle from the x-axis to this vector
+                    vector_x = port_x - midpoint_x
+                    vector_y = port_y - midpoint_y
                     port_angle_rad = math.atan2(-vector_y, vector_x)
-
-                    # Calculate the relative angle
-                    relative_angle_rad = port_angle_rad - mouse_heading_rad
-
-                    # Convert relative angle to degrees and make sure it is within [0, 360)
-                    relative_angle_deg = math.degrees(relative_angle_rad) % 360
-
-                    # Append calculated relative angle to list
+                    relative_angle_deg = math.degrees(port_angle_rad - mouse_heading_rad) % 360
                     cue_offset_relative_angles.append(relative_angle_deg)
 
                 correct_port = trial["correct_port"]
@@ -233,40 +140,31 @@ def mouse_heading_cue_offset(sessions,
                     correct_port = 1
                 port = int(correct_port) - 1
                 cue_angle = cue_offset_relative_angles[port] % 360
-
                 if cue_angle > 180:
                     cue_angle -= 360
                 elif cue_angle <= -180:
                     cue_angle += 360
 
                 end_angle = cue_angle
-
-                # delta_angle = shortest_angular_difference(start_angle, end_angle)
                 delta_angle = start_angle - end_angle % 360
 
                 if delta_angle > 180:
                     delta_angle -= 360
                 elif delta_angle <= -180:
                     delta_angle += 360
-                    
-                percentage_turn = delta_angle / start_angle
 
+                percentage_turn = delta_angle / start_angle
                 percentages.append(percentage_turn)
-            
 
         average_percentage = np.mean(percentages)
         sem = np.std(percentages) / np.sqrt(len(percentages))
         sd = np.std(percentages)
 
-    
         return average_percentage
 
-
-    # success data will be a dict with cue times, and in each cue time will be the data.
     success_data = {}
     unsuccessful_data = {}
 
-    # for each cue time:
     for cue_time in data_sets:
         if cue_time not in success_data:
             success_data[cue_time] = {'data': {}, 'sem': {}, 'sd': {}}
@@ -276,29 +174,23 @@ def mouse_heading_cue_offset(sessions,
         for mouse in trials:
             successful_trials = trials[mouse]['successful_trials']
             unsuccessful_trials = trials[mouse]['unsuccessful_trials']
-            timeouts = trials[mouse]['timeouts']
 
-            data = get_data(successful_trials, mouse)       # I will get get_data to return the average percentage for each mouse straight away, 
-                                                            #   since it is just going to take all the trials, not angle binned. 
+            data = get_data(successful_trials, mouse)
             if mouse not in success_data[cue_time]['data']:
                 success_data[cue_time]['data'][mouse] = []
-            if mouse in success_data[cue_time]['data']:
-                success_data[cue_time]['data'][mouse].append(data)
+            success_data[cue_time]['data'][mouse].append(data)
 
             data = get_data(unsuccessful_trials, mouse)
             if mouse not in unsuccessful_data[cue_time]['data']:
                 unsuccessful_data[cue_time]['data'][mouse] = []
-            if mouse in unsuccessful_data[cue_time]['data']:
-                unsuccessful_data[cue_time]['data'][mouse].append(data)
-                unsuccessful_data[cue_time]['data'][mouse] = np.mean(unsuccessful_data[cue_time]['data'][mouse])
+            unsuccessful_data[cue_time]['data'][mouse].append(data)
+            unsuccessful_data[cue_time]['data'][mouse] = np.mean(unsuccessful_data[cue_time]['data'][mouse])
 
-    # print values for 5ms mice:
-    # print(f"Success data for 5ms: {success_data['5ms']['data']}")
     for cue_time in success_data:
         data = []
         for mouse in success_data[cue_time]['data']:
             data.append(success_data[cue_time]['data'][mouse])
-        success_data[cue_time]['data'] = np.array(data)
+        success_data[cue_time]['array'] = np.array(data)
         success_data[cue_time]['mean'] = np.mean(data)
         success_data[cue_time]['sem'] = np.std(data) / np.sqrt(len(data))
         success_data[cue_time]['sd'] = np.std(data)
@@ -306,28 +198,42 @@ def mouse_heading_cue_offset(sessions,
         data = []
         for mouse in unsuccessful_data[cue_time]['data']:
             data.append(unsuccessful_data[cue_time]['data'][mouse])
-        unsuccessful_data[cue_time]['data'] = np.array(data)
+        unsuccessful_data[cue_time]['array'] = np.array(data)
         unsuccessful_data[cue_time]['mean'] = np.mean(data)
         unsuccessful_data[cue_time]['sem'] = np.std(data) / np.sqrt(len(data))
         unsuccessful_data[cue_time]['sd'] = np.std(data)
 
-        # print(f"Success data for {cue_time}: {success_data[cue_time]['mean']}")
-
-
-    # ploting the data:
-
+    # Plotting the data:
     bin_titles = [cue_time for cue_time in predefined_colors.keys() if cue_time in success_data]
-    # sort data into correct order of cue times:
     averages = [success_data[title]['mean'] for title in bin_titles]
     sems = [success_data[title]['sem'] for title in bin_titles]
-    sds = [success_data[title]['sd'] for title in bin_titles]
 
     fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Plot the averages as a line
     x = np.arange(len(bin_titles))  # X-axis positions (one for each cue time)
 
-    # Plot the line for the averages
+    if plot_individual_mice:
+        # Step 1: Build a dictionary with mouse data for each cue time
+        mouse_data_dict = {}
+
+        for cue_time in success_data:
+            for mouse in success_data[cue_time]['data']:
+                if mouse not in mouse_data_dict:
+                    mouse_data_dict[mouse] = [np.nan] * len(bin_titles)  # Initialize with NaN values for each cue time
+
+                for idx, title in enumerate(bin_titles):
+                    # Check if the mouse has data for the specific cue_time and if the value is not already filled
+                    if mouse in success_data[title]['data'] and success_data[title]['data'][mouse] and np.isnan(mouse_data_dict[mouse][idx]):
+                        # Extract the value from the list and assign it to the correct position
+                        mouse_data_dict[mouse][idx] = success_data[title]['data'][mouse][0]
+
+        # Step 2: Plot the data from the dictionary
+        for mouse, mouse_data in mouse_data_dict.items():
+            ax.plot(x, mouse_data, label=f'Mouse {mouse}', linestyle='--', marker='o')
+
+        # Optionally, add a legend to identify each mouse
+        ax.legend(loc='upper right')
+
+    # Plot the averages as a solid line
     ax.plot(x, averages, color='b', marker='o', linestyle='-', lw=2)
 
     # Shading the area to represent SEM
@@ -337,21 +243,12 @@ def mouse_heading_cue_offset(sessions,
                     color='b', alpha=0.2)
 
     # Customizing the plot
-
-    # Set the tick labels to the cue times
     ax.set_xticks(x)
     ax.set_xticklabels(bin_titles, rotation=45, ha="right")
-
-    # Add labels and title using the function's `title` variable and custom y-label
     ax.set_xlabel('Cue presentation duration (ms)', fontsize=14)
     ax.set_ylabel('% of turn completed at cue offset', fontsize=14)
     ax.set_title(title, fontsize=16)
-
-    # Add grid
     ax.grid(True, linestyle='--', alpha=0.6)
 
-    # Remove the legend
-    # ax.legend()  # Legend removed as per the request
-
-    # Show the plot
     plt.tight_layout()
+    plt.show()
