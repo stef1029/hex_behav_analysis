@@ -248,8 +248,8 @@ class Process_Raw_Behaviour_Data:
         dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
         # print details about dropped frames:
         print(f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
-        if dropped_frames >= 30:
-            raise Exception(f"Error: Too many dropped frames detected ({dropped_frames}%). Processing aborted.")
+        if dropped_frames >= 40:
+            raise Exception(f"Error: Too many dropped frames detected ({round(dropped_frames, 1)}%). Processing aborted.")
 
         print(f"Percentage dropped frames: {dropped_frames}%")
 

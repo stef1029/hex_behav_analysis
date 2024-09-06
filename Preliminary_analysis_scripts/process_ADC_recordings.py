@@ -148,6 +148,6 @@ class process_ADC_Recordings:
 
 if __name__ == "__main__":
     # test = process_ADC_Recordings(r"E:\Test_output\240906_001430\240906_001430_OEAB_recording")
-    test = process_ADC_Recordings(r"Y:\Behaviour code\2407_July_WT_cohort\Data\240730_160351\240730_160351_OEAB_recording")
+    test = process_ADC_Recordings(r"E:\Test_output\240906_024544\240906_024544_OEAB_recording")
     
     test.view_ADC_data("ADC2")

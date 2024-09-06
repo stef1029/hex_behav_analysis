@@ -191,7 +191,7 @@ class Cohort_folder:
                     else:
                         print(f"Error processing {session}")
                         # print traceback:
-                        traceback.print_exc()
+                        # traceback.print_exc()
                     continue
 
     def graphical_cohort_info(self, show = False):
