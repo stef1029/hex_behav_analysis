@@ -190,6 +190,8 @@ class Cohort_folder:
                         continue
                     else:
                         print(f"Error processing {session}")
+                        # print traceback:
+                        # traceback.print_exc()
                     continue
 
     def graphical_cohort_info(self, show = False):
@@ -415,7 +417,7 @@ class Cohort_folder:
         
 
         if OEAB_nodes != None:
-            if OEAB_nodes[0].name == "Record Node 113" or OEAB_nodes[0].name == "Record Node 101":
+            if OEAB_nodes[0].name == "Record Node 113" or OEAB_nodes[0].name == "Record Node 101"or OEAB_nodes[0].name == "Record Node 120":
                 recording_no = 0
                 for file in OEAB_nodes[0].glob('*'):
                     if "ADC1" in file.name:

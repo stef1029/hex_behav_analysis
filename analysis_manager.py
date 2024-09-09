@@ -51,6 +51,7 @@ class Process_Raw_Behaviour_Data:
         ArduinoDAQ.json,
         OEAB folder,
         """
+
         start_time = time.perf_counter()
 
         self.data_folder_path = Path(self.session.get("directory"))
@@ -68,12 +69,16 @@ class Process_Raw_Behaviour_Data:
             self.rig_id = int(self.sendkey_logs.rig_id)
         except:
             self.rig_id = 1
+
+        self.video_fps = self.sendkey_logs.video_fps
         
         session_metadata = {"rig_id": self.rig_id, 
                             "mouse_weight": self.sendkey_logs.mouse_weight, 
                             "behaviour_phase": self.sendkey_logs.behaviour_phase,
                             "cue_duration": self.sendkey_logs.cue_duration,
-                            "wait_duration": self.sendkey_logs.wait_duration,}
+                            "wait_duration": self.sendkey_logs.wait_duration,
+                            "video_fps": self.video_fps
+                            }
 
         self.OEAB_data = process_ADC_Recordings(self.OEAB_folder, self.rig_id)
 
@@ -185,7 +190,13 @@ class Process_Raw_Behaviour_Data:
         cap = cv.VideoCapture(str(self.raw_video_Path))
         self.true_video_framecount = cap.get(cv.CAP_PROP_FRAME_COUNT)
         cap.release()
-        fps = 30
+        if self.video_fps != None:
+            fps = self.video_fps
+            print(f"fps set to {fps}")
+
+        else:
+            fps = 30
+            print("fps set to 30")
         
         frame_ID_check = False
         # check if frame_IDs is a key:
@@ -235,8 +246,10 @@ class Process_Raw_Behaviour_Data:
         print(f"Video length: {round(self.true_video_framecount / fps) // 60} minutes, {round(self.true_video_framecount / fps) % 60} seconds")
         #print percentage dropped frames:
         dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
-        if dropped_frames >= 30:
-            raise Exception(f"Error: Too many dropped frames detected ({dropped_frames}%). Processing aborted.")
+        # print details about dropped frames:
+        print(f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
+        if dropped_frames >= 40:
+            raise Exception(f"Error: Too many dropped frames detected ({round(dropped_frames, 1)}%). Processing aborted.")
 
         print(f"Percentage dropped frames: {dropped_frames}%")
 
