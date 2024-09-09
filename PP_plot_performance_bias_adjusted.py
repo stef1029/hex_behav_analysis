@@ -175,7 +175,7 @@ def plot_performance_by_angle(sessions,
                 ax.plot(angles_rad, mouse_biased_performance_data, marker='o', label=f'Mouse {mouse} (Performance)')
 
         # Add a legend to differentiate between mice
-        ax.legend(loc='upper right')
+        # ax.legend(loc='upper right')
     
     else:
         # Plot the average bias or bias-adjusted performance
