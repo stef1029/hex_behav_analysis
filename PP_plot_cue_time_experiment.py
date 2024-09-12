@@ -5,6 +5,7 @@ from Cohort_folder import Cohort_folder
 import json
 import numpy as np
 from collections import defaultdict
+from datetime import datetime
 
 
 
@@ -17,7 +18,8 @@ def plot_performance_by_angle(sessions,
                               plot_mode='radial', 
                               cue_mode='both',
                               error_bars='SEM',
-                              x_label_gap = 30):
+                              x_label_gap = 30,
+                              output_path = None):
     """
     This function takes a list of lists of sessions and plots the performance by angle of all trials in the sessions given.
     ### Inputs: 
@@ -365,7 +367,7 @@ def plot_performance_by_angle(sessions,
                 performance_sem = np.append(performance_sem, performance_sem[0])
                 performance_sd = np.append(performance_sd, performance_sd[0])
 
-            label = f"{cue_time} - Trials: {len(total_trials)} - Mice: {len(trials)} - Average trials/ bin: {round(len(total_trials)/len(bin_titles))}"
+            label = f"{cue_time} - Trials: {len(total_trials)} - Mice: {len(trials)}"
 
             color = predefined_colors[cue_time]
 
@@ -394,3 +396,27 @@ def plot_performance_by_angle(sessions,
 
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), shadow=True, ncol=1, title='Cue Time:')
         ax.set_title(title, va='bottom', fontsize=16)
+        
+        if output_path is not None:
+            sub_dir_name = 'cue_time_experiment'
+            # Check if the directory exists in the output path, and create it if it doesn't
+            final_output_path = output_path / sub_dir_name  # Create the full path
+            if not final_output_path.exists():
+                final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+
+            # Define the base filename with date and time
+            date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+            output_filename = f"{date_time}_plot_performance_by_angle.svg"
+
+            # Check for existing files and modify filename if necessary
+            counter = 0
+            while (final_output_path / output_filename).exists():
+                output_filename = f"{date_time}_plot_performance_by_angle_{counter}.svg"
+                counter += 1
+
+            # Save the plot as SVG in the desired folder
+            print(f"Saving plot to: '{final_output_path / output_filename}'")
+            plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+
+        plt.show()

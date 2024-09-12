@@ -5,7 +5,7 @@ from Cohort_folder import Cohort_folder
 import json
 import numpy as np
 from scipy.stats import ttest_rel
-
+from datetime import datetime
 
 # Define your colors
 colors = {
@@ -24,7 +24,8 @@ def plot_performance_by_angle(sessions,
                               trials_per_bin=10, 
                               plot_mode='radial', 
                               cue_mode='both',
-                              error_bars = 'SEM'):
+                              error_bars = 'SEM',
+                              output_path = None):
     """
     This function takes a list of sessions and plots the performance by angle of all trials in the sessions given.
     ### Inputs: 
@@ -350,6 +351,27 @@ def plot_performance_by_angle(sessions,
         # Add a legend
         ax.legend(loc='upper right')
 
+        sub_dir_name = 'catch_trial_plots'
+        # Check if the directory exists in the output path, and create it if it doesn't
+        final_output_path = output_path / sub_dir_name  # Create the full path
+        if not final_output_path.exists():
+            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+
+        # Define the base filename with date and time
+        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+        output_filename = f"{date_time}_plot_performance_by_angle_radial.svg"
+
+        # Check for existing files and modify filename if necessary
+        counter = 0
+        while (final_output_path / output_filename).exists():
+            output_filename = f"{date_time}_plot_performance_by_angle_radial_{counter}.svg"
+            counter += 1
+
+        # Save the plot as SVG in the desired folder
+        print(f"Saving plot to: '{final_output_path / output_filename}'")
+        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+
         # Show the plot
         plt.show()
 
@@ -411,6 +433,27 @@ def plot_performance_by_angle(sessions,
 
         # Add a title
         ax.set_title(title, fontsize=16)
+
+        sub_dir_name = 'catch_trial_plots'
+        # Check if the directory exists in the output path, and create it if it doesn't
+        final_output_path = output_path / sub_dir_name  # Create the full path
+        if not final_output_path.exists():
+            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+
+        # Define the base filename with date and time
+        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+        output_filename = f"{date_time}_plot_performance_by_angle_linear.svg"
+
+        # Check for existing files and modify filename if necessary
+        counter = 0
+        while (final_output_path / output_filename).exists():
+            output_filename = f"{date_time}_plot_performance_by_angle_linear_{counter}.svg"
+            counter += 1
+
+        # Save the plot as SVG in the desired folder
+        print(f"Saving plot to: '{final_output_path / output_filename}'")
+        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
 
         # Show the plot
         plt.tight_layout()
