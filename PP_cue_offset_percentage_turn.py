@@ -3,6 +3,10 @@ import numpy as np
 import math
 from collections import defaultdict
 
+# Function to lighten a color for shaded regions
+def lighten_color(color, factor=0.5):
+    return tuple(min(1, c + (1 - c) * factor) for c in color)
+
 def mouse_heading_cue_offset(sessions,
                              cue_times, 
                              title='title', 
@@ -41,7 +45,7 @@ def mouse_heading_cue_offset(sessions,
         total_trials = []
         for session in session_list:
             mouse = session.session_dict['mouse_id']
-            if mouse =='wtjx261-2b' or mouse == 'wtjx261-2a':
+            if mouse =='wtjx261-2b' or mouse == 'wtjx261-2a' or mouse =='wtjx300-6a':
                 continue
             if mouse not in trials:
                 trials[mouse] = {'trials': []}
@@ -202,7 +206,7 @@ def mouse_heading_cue_offset(sessions,
         sem = np.std(percentages) / np.sqrt(len(percentages))
         sd = np.std(percentages)
 
-        return average_percentage
+        return average_percentage * 100
 
     success_data = {}
     unsuccessful_data = {}
@@ -276,17 +280,17 @@ def mouse_heading_cue_offset(sessions,
         ax.legend(loc='upper right')
 
     # Plot the averages as a solid line
-    ax.plot(x, averages, color='b', marker='o', linestyle='-', lw=2)
+    ax.plot(x, averages, color=(0, 0.68, 0.94), marker='o', linestyle='-', lw=2)
 
     # Shading the area to represent SEM
     ax.fill_between(x, 
                     np.array(averages) - np.array(sems),  # Lower bound (mean - SEM)
                     np.array(averages) + np.array(sems),  # Upper bound (mean + SEM)
-                    color='b', alpha=0.2)
+                    color=lighten_color((0, 0.68, 0.94)), alpha=0.2)
 
     # Customizing the plot
     ax.set_xticks(x)
-    ax.set_xticklabels(bin_titles, rotation=45, ha="right")
+    ax.set_xticklabels(bin_titles, rotation=0, ha="right", fontsize=12)
     ax.set_xlabel('Cue presentation duration (ms)', fontsize=14)
     ax.set_ylabel('% of turn completed at cue offset', fontsize=14)
     ax.set_title(title, fontsize=16)

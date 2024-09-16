@@ -25,7 +25,9 @@ def plot_performance_by_angle(sessions,
                               plot_mode='radial', 
                               cue_modes=['all_trials'],
                               error_bars = 'SEM',
-                              output_path = None):
+                              output_path = None,
+                              plot_individual_mice = False,
+                              exclusion_mice = []):
     """
     This function takes a list of sessions and plots the performance by angle of all trials in the sessions given.
     """
@@ -41,6 +43,8 @@ def plot_performance_by_angle(sessions,
                         'audio_trials': []}
         for session in sessions:
             mouse = session.session_dict.get('mouse_id', 'unknown')  
+            if mouse in exclusion_mice:
+                continue
             if mouse not in mice:
                 mice[mouse] = {'all_trials': {'trials': []},
                                 'visual_trials': {'trials': []},
@@ -100,7 +104,7 @@ def plot_performance_by_angle(sessions,
         or plot_mode == 'bar_split' \
             or plot_mode == 'bar_split_overlay':
         limits = (0, 180)
-        num_bins = 10
+        num_bins = 6
     else:
         limits = (-180, 180)
 
@@ -110,142 +114,62 @@ def plot_performance_by_angle(sessions,
     bin_titles = []
     performance = []
 
-    if plot_mode == 'bar_split' or plot_mode == 'bar_split_overlay':
+
+    plotting_data = {f'{cue_group}': {'performance': [], 
+                                        'performance_sd': [],
+                                        'performance_sem': [],
+                                        'length': [],
+                                        'n': []} 
+                                        for cue_group in cue_modes}
+    
+    for cue_group in cue_modes:
         for mouse in data_sets['mice']:
-            left_bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
-            right_bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
+            bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
 
-            for trial in data_sets['mice'][mouse]['trials']:
-                if trial["turn_data"] is not None:
+            for trial in data_sets['mice'][mouse][cue_group]['trials']:
+                # print(trial)
+                if trial["turn_data"] != None:
                     angle = trial["turn_data"]["cue_presentation_angle"]
-                    if trial["next_sensor"] != {}:
-                        correct = int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1])
-                    else:
-                        correct = 0
-                    if angle < 0:
-                        bin_index = abs(angle) // bin_size * bin_size
-                        left_bins[bin_index].append(correct)
-                    elif angle > 0:
-                        bin_index = angle // bin_size * bin_size
-                        right_bins[bin_index].append(correct)
-
-            data_sets['mice'][mouse]['left_performance'] = calc_performance(left_bins)
-            data_sets['mice'][mouse]['right_performance'] = calc_performance(right_bins)
-            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(left_bins)]
-
-        left_performance_data = np.array([data_sets['mice'][mouse]['left_performance'] for mouse in data_sets['mice']])
-        left_performance = np.mean(left_performance_data, axis=0)
-        left_performance_sd = np.std(left_performance_data, axis=0)
-        n = len(left_performance_data)
-        left_performance_sem = left_performance_sd / np.sqrt(n)
-
-        right_performance_data = np.array([data_sets['mice'][mouse]['right_performance'] for mouse in data_sets['mice']])
-        right_performance = np.mean(right_performance_data, axis=0)
-        right_performance_sd = np.std(right_performance_data, axis=0)
-        n = len(left_performance_data)
-        right_performance_sem = right_performance_sd / np.sqrt(n)
-
-    else:
-        plotting_data = {f'{cue_group}': {'performance': [], 
-                                          'performance_sd': [],
-                                          'performance_sem': [],
-                                          'length': [],
-                                          'n': []} 
-                                            for cue_group in cue_modes}
-        
-        for cue_group in cue_modes:
-            for mouse in data_sets['mice']:
-                bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
-
-                for trial in data_sets['mice'][mouse][cue_group]['trials']:
-                    # print(trial)
-                    if trial["turn_data"] != None:
-                        angle = trial["turn_data"]["cue_presentation_angle"]
-                        for bin in bins:
-                            if angle < bin + bin_size and angle >= bin:
-                                if trial["next_sensor"] != {}:
-                                    if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
-                                        bins[bin].append(1)
-                                    else:
-                                        bins[bin].append(0)
+                    for bin in bins:
+                        if angle < bin + bin_size and angle >= bin:
+                            if trial["next_sensor"] != {}:
+                                if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
+                                    bins[bin].append(1)
                                 else:
                                     bins[bin].append(0)
+                            else:
+                                bins[bin].append(0)
 
-                # caluclate the total lenth of each bin across mice:
-                data_sets['mice'][mouse][cue_group]['performance'] = calc_performance(bins)
-                data_sets['mice'][mouse][cue_group]['n'] = [len(bins[key]) for key in sorted(bins)]
-                # print(trials[mouse]['n'])
-                bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
+            # caluclate the total lenth of each bin across mice:
+            data_sets['mice'][mouse][cue_group]['performance'] = calc_performance(bins)
+            data_sets['mice'][mouse][cue_group]['n'] = [len(bins[key]) for key in sorted(bins)]
+            # print(trials[mouse]['n'])
+            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins)]
 
-            length_data = np.array([data_sets['mice'][mouse][cue_group]['n'] for mouse in data_sets['mice']])
-            length = np.mean(length_data, axis=0)
-            performance_data = np.array([data_sets['mice'][mouse][cue_group]['performance'] for mouse in data_sets['mice']])
-            performance = np.mean(performance_data, axis=0)
-            performance_sd = np.std(performance_data, axis=0)
-            n = len(performance_data)
-            performance_sem = performance_sd / np.sqrt(n)
+        length_data = np.array([data_sets['mice'][mouse][cue_group]['n'] for mouse in data_sets['mice']])
+        length = np.mean(length_data, axis=0)
+        performance_data = np.array([data_sets['mice'][mouse][cue_group]['performance'] for mouse in data_sets['mice']])
+        performance = np.mean(performance_data, axis=0)
+        performance_sd = np.std(performance_data, axis=0)
+        n = len(performance_data)
+        performance_sem = performance_sd / np.sqrt(n)
 
-            plotting_data[cue_group]['performance'] = performance
-            plotting_data[cue_group]['performance_sd'] = performance_sd
-            plotting_data[cue_group]['performance_sem'] = performance_sem
-            plotting_data[cue_group]['length'] = length
-            plotting_data[cue_group]['n'] = n
-            plotting_data[cue_group]['bin_titles'] = bin_titles
-
-    def plot_performance(bin_titles, performance, errors, title, color_key):
-        plt.figure(figsize=(10, 6))
-        plt.style.use('ggplot')
-
-        color = colors[color_key]
-        lighter_color = lighten_color(color)
-
-        bin_numeric = np.array(bin_titles, dtype=float)
-
-        plt.errorbar(bin_numeric, performance, yerr=errors, fmt='o-', color=color, ecolor=lighter_color, elinewidth=3, capsize=0, linestyle='-', linewidth=2)
-        plt.xlabel('Turn Angle (degrees)', fontsize=14)
-        plt.ylabel('Performance', fontsize=14)
-        plt.title(title, fontsize=16)
-
-        plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(limits[0], limits[1])
-        plt.ylim(0, 1)
-        plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
-        plt.tight_layout()
-        plt.show()
-
-    def plot_performance_multi(bin_titles, left_performance, left_errors, right_performance, right_errors, left_title, right_title):
-        plt.figure(figsize=(10, 6))
-        plt.style.use('ggplot')
-
-        bin_numeric = np.array(bin_titles, dtype=float)
-
-        plt.errorbar(bin_numeric, left_performance, yerr=left_errors, fmt='o-', color=colors['Cyan'], ecolor=lighten_color(colors['Cyan']), elinewidth=3, capsize=0, linestyle='-', linewidth=2, label=left_title)
-        plt.errorbar(bin_numeric, right_performance, yerr=right_errors, fmt='o-', color=colors['Orange'], ecolor=lighten_color(colors['Orange']), elinewidth=3, capsize=0, linestyle='-', linewidth=2, label=right_title)
-
-        plt.xlabel('Turn Angle (degrees)', fontsize=14)
-        plt.ylabel('Performance', fontsize=14)
-        plt.title(title, fontsize=16)
-
-        plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(limits[0], limits[1])
-        plt.ylim(0, 1)
-        plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-    if plot_mode == 'bar_split':
-        plot_performance(bin_titles, left_performance, left_performance_sem, 'Left Turn Performance', 'Cyan')
-        plot_performance(bin_titles, right_performance, right_performance_sem, 'Right Turn Performance', 'Orange')
-
-    if plot_mode == 'bar_split_overlay':
-        plot_performance_multi(bin_titles, left_performance, left_performance_sem, right_performance, right_performance_sem, 'Left Turn Performance', 'Right Turn Performance')
+        plotting_data[cue_group]['performance'] = performance
+        plotting_data[cue_group]['performance_sd'] = performance_sd
+        plotting_data[cue_group]['performance_sem'] = performance_sem
+        plotting_data[cue_group]['length'] = length
+        plotting_data[cue_group]['n'] = n
+        plotting_data[cue_group]['bin_titles'] = bin_titles
 
     # Radial plot:
 
     if plot_mode == 'radial':
 
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={'polar': True})
+
+        # Dictionary to hold mouse-specific data
+        if plot_individual_mice:
+            mouse_data_dict = {cue_group: {} for cue_group in cue_modes}
 
         for cue_group in cue_modes:
             performance = plotting_data[cue_group]['performance']
@@ -265,24 +189,42 @@ def plot_performance_by_angle(sessions,
             angles_rad = np.append(angles_rad, angles_rad[0])
             performance_data = np.append(performance_data, performance_data[0])
             performance_sem = np.append(performance_sem, performance_sem[0])
-            
 
             # Plot the performance data line
             ax.plot(angles_rad, performance_data, marker='o', color=colors[cue_group], label=cue_group.capitalize())
 
             # Add the shaded area for standard deviation or SEM
             if error_bars == 'SD':
-                ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd, 
+                ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd,
                                 color=lighten_color(colors[cue_group]), alpha=0.4)
                 ax.text(0.9, 0, '±SD', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
             elif error_bars == 'SEM':
-                ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem, 
+                ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem,
                                 color=lighten_color(colors[cue_group]), alpha=0.4)
                 ax.text(0.9, 0, '±SEM', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
+            # Store individual mouse data if needed
+            if plot_individual_mice:
+                for mouse in data_sets['mice']:
+                    if cue_group in data_sets['mice'][mouse]:
+                        mouse_data = data_sets['mice'][mouse][cue_group]['performance']
+                        if mouse not in mouse_data_dict[cue_group]:
+                            mouse_data_dict[cue_group][mouse] = []
+                        mouse_data_dict[cue_group][mouse].append(mouse_data)
+
+        # Plot individual mouse data if requested
+        if plot_individual_mice:
+            for cue_group in cue_modes:
+                for mouse, mouse_data_list in mouse_data_dict[cue_group].items():
+                    for mouse_data in mouse_data_list:
+                        mouse_data = np.append(mouse_data, mouse_data[0])  # Close the circular plot for individual mouse data
+                        ax.plot(angles_rad, mouse_data, label=f"Mouse {mouse}", linestyle='--', marker='o')
+
+            ax.legend(loc='upper right')
+
         # Set the tick locations and labels
-        tick_locs = np.radians(np.arange(limits[0], limits[1]+1, 30)) % (2 * np.pi)
-        tick_labels = [f"{int(deg)}" for deg in np.arange(limits[0], limits[1]+1, 30)]
+        tick_locs = np.radians(np.arange(limits[0], limits[1] + 1, 30)) % (2 * np.pi)
+        tick_labels = [f"{int(deg)}" for deg in np.arange(limits[0], limits[1] + 1, 30)]
         ax.set_xticks(tick_locs)
         ax.set_xticklabels(tick_labels)
 
@@ -297,29 +239,40 @@ def plot_performance_by_angle(sessions,
 
         # Add title
         ax.set_title(title, va='bottom', fontsize=16)
-        # change legend position by coords:
+        
+        # Change legend position by coords
         ax.legend(loc=(0.85, 0.9))
 
-        sub_dir_name = 'base_performance_plots'
-        # Check if the directory exists in the output path, and create it if it doesn't
-        final_output_path = output_path / sub_dir_name  # Create the full path
-        if not final_output_path.exists():
-            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+        # ------ save figures ------    
+
+        # Create directory if it doesn't exist (but don't concatenate path multiple times)
+        if not output_path.exists():
+            output_path.mkdir(parents=True, exist_ok=True)
 
         # Define the base filename with date and time
         date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
-        output_filename = f"{date_time}_plot_performance_by_angle_radial_{cue_modes_str}.svg"
 
-        # Check for existing files and modify filename if necessary
+        cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+        base_filename = f"{date_time}_angular_performance_line_{cue_modes_str}"
+        output_filename_svg = f"{base_filename}.svg"
+        output_filename_png = f"{base_filename}.png"
+
+        # Check for existing SVG and PNG files and modify filenames if necessary
         counter = 0
-        while (final_output_path / output_filename).exists():
-            output_filename = f"{date_time}_plot_performance_by_angle_radial_{cue_modes_str}_{counter}.svg"
+        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+            output_filename_svg = f"{base_filename}_{counter}.svg"
+            output_filename_png = f"{base_filename}_{counter}.png"
             counter += 1
 
         # Save the plot as SVG in the desired folder
-        print(f"Saving plot to: '{final_output_path / output_filename}'")
-        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+        # Save the plot as PNG in the desired folder
+        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+
+        # --------------------------------------------
 
         # Show the plot
         plt.show()
@@ -334,32 +287,51 @@ def plot_performance_by_angle(sessions,
         plt.figure(figsize=(10, 6))
         ax = plt.subplot(111)
 
+        # Dictionary to hold mouse-specific data
+        if plot_individual_mice:
+            mouse_data_dict = {cue_group: {} for cue_group in cue_modes}
+
         # Iterate through the plotting data dictionary to plot both normal and catch data
-        for key, data in plotting_data.items():
-            if key == 'p_values':
-                continue
-            performance_data = data['performance_mean']
-            performance_sem = data['performance_sem']
-            performance_sd = data['performance_sd']
+        for cue_group in cue_modes:
+            performance = plotting_data[cue_group]['performance']
+            performance_sd = plotting_data[cue_group]['performance_sd']
+            performance_sem = plotting_data[cue_group]['performance_sem']
+            bin_titles = plotting_data[cue_group]['bin_titles']
 
-            # Plot the line for this dataset
-            ax.plot(angles_deg, performance_data, marker='o', color=colors[key], label=key.capitalize())
+            # Prepare the angles as a numeric sequence (linear plot, so no need for radians)
+            angles_deg = np.array(bin_titles, dtype=np.float64)
+            performance_data = np.array(performance)
 
-            # Add the shaded region for standard deviation or SEM
+            # Plot the performance data line
+            ax.plot(angles_deg, performance_data, marker='o', color=colors[cue_group], label=cue_group.capitalize())
+
+            # Add the shaded area for standard deviation or SEM
             if error_bars == 'SD':
-                ax.fill_between(angles_deg, performance_data - performance_sd, performance_data + performance_sd, color=lighten_color(colors[key]), alpha=0.4)
+                ax.fill_between(angles_deg, performance_data - performance_sd, performance_data + performance_sd, 
+                                color=lighten_color(colors[cue_group]), alpha=0.4)
+                ax.text(0.9, 0, '±SD', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
             elif error_bars == 'SEM':
-                ax.fill_between(angles_deg, performance_data - performance_sem, performance_data + performance_sem, color=lighten_color(colors[key]), alpha=0.4)
+                ax.fill_between(angles_deg, performance_data - performance_sem, performance_data + performance_sem, 
+                                color=lighten_color(colors[cue_group]), alpha=0.4)
+                ax.text(0.9, 0, '±SEM', transform=ax.transAxes, fontsize=12, verticalalignment='top', color='black')
 
-        # Add stars for significant p-values
-        p_values = plotting_data['p_values']
-        for i, p_val in enumerate(p_values):
-            if p_val < 0.05:
-                # Find the maximum y value (performance) for this point to place the star above
-                max_performance = max(plotting_data['normal']['performance_mean'][i], plotting_data['catch']['performance_mean'][i])
+            # Store individual mouse data if needed
+            if plot_individual_mice:
+                for mouse in data_sets['mice']:
+                    if cue_group in data_sets['mice'][mouse]:
+                        mouse_data = data_sets['mice'][mouse][cue_group]['performance']
+                        if mouse not in mouse_data_dict[cue_group]:
+                            mouse_data_dict[cue_group][mouse] = []
+                        mouse_data_dict[cue_group][mouse].append(mouse_data)
 
-                # Add a star above the data point (adjust the vertical position as needed)
-                ax.text(angles_deg[i] + 10, max_performance + 0.05, f'* (p={round(p_val, 3)})', fontsize=14, color='black', ha='center')
+        # Plot individual mouse data if requested
+        if plot_individual_mice:
+            for cue_group in cue_modes:
+                for mouse, mouse_data_list in mouse_data_dict[cue_group].items():
+                    for mouse_data in mouse_data_list:
+                        ax.plot(angles_deg, mouse_data, label=f"Mouse {mouse}", linestyle='--', marker='o')
+
+            ax.legend(loc='upper right')
 
         # Labeling the axes
         ax.set_xlabel('Turn Angle (degrees)', fontsize=14)
@@ -384,28 +356,36 @@ def plot_performance_by_angle(sessions,
         # Add a title
         ax.set_title(title, fontsize=16)
 
+        # ------ save figures ------    
 
-    
-        sub_dir_name = 'base_performance_plots'
-        # Check if the directory exists in the output path, and create it if it doesn't
-        final_output_path = output_path / sub_dir_name  # Create the full path
-        if not final_output_path.exists():
-            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+        # Create directory if it doesn't exist (but don't concatenate path multiple times)
+        if not output_path.exists():
+            output_path.mkdir(parents=True, exist_ok=True)
 
         # Define the base filename with date and time
         date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
-        output_filename = f"{date_time}_plot_performance_by_angle_linear_{cue_modes_str}.svg"
 
-        # Check for existing files and modify filename if necessary
+        cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+        base_filename = f"{date_time}_angular_performance_line_{cue_modes_str}"
+        output_filename_svg = f"{base_filename}.svg"
+        output_filename_png = f"{base_filename}.png"
+
+        # Check for existing SVG and PNG files and modify filenames if necessary
         counter = 0
-        while (final_output_path / output_filename).exists():
-            output_filename = f"{date_time}_plot_performance_by_angle_linear_{cue_modes_str}_{counter}.svg"
+        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+            output_filename_svg = f"{base_filename}_{counter}.svg"
+            output_filename_png = f"{base_filename}_{counter}.png"
             counter += 1
 
         # Save the plot as SVG in the desired folder
-        print(f"Saving plot to: '{final_output_path / output_filename}'")
-        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+        # Save the plot as PNG in the desired folder
+        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+
+        # --------------------------------------------
 
         # Show the plot
         plt.tight_layout()
