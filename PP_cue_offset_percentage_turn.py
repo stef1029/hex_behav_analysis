@@ -3,6 +3,10 @@ import numpy as np
 import math
 from collections import defaultdict
 
+# Function to lighten a color for shaded regions
+def lighten_color(color, factor=0.5):
+    return tuple(min(1, c + (1 - c) * factor) for c in color)
+
 def mouse_heading_cue_offset(sessions,
                              cue_times, 
                              title='title', 
@@ -41,7 +45,7 @@ def mouse_heading_cue_offset(sessions,
         total_trials = []
         for session in session_list:
             mouse = session.session_dict['mouse_id']
-            if mouse =='wtjx261-2b' or mouse == 'wtjx261-2a':
+            if mouse =='wtjx261-2b' or mouse == 'wtjx261-2a' or mouse =='wtjx300-6a':
                 continue
             if mouse not in trials:
                 trials[mouse] = {'trials': []}
@@ -101,38 +105,79 @@ def mouse_heading_cue_offset(sessions,
         percentages = []
         for trial in trials:
             session = trial['session_object']
+            rig_id = session.rig_id
+            correct_port = int(trial['correct_port'][-1]) - 1
             dlc_data = trial.get('DLC_data')
             if len(trial['video_frames']) > 0:
+                dlc_data = trial.get('DLC_data')
+                timestamps = dlc_data['timestamps']
                 cue_offset_time = trial['cue_end'] + offset
                 start_angle = trial['turn_data']['cue_presentation_angle']
 
                 mouse_start_bearing = trial['turn_data']['bearing']
 
-                timestamps = dlc_data['timestamps']
+                # get timestamps from dlc data:
                 index = np.searchsorted(timestamps, cue_offset_time, side='left') - 1
+
                 cue_offset_coords = dlc_data.iloc[index]
 
+                # to get mouse heading, take the ear coords, find angle between that and the nose coords, and then add 90 degrees to that angle.
                 left_ear_coords = (cue_offset_coords["left_ear"]["x"], cue_offset_coords["left_ear"]["y"])
+
                 right_ear_coords = (cue_offset_coords["right_ear"]["x"], cue_offset_coords["right_ear"]["y"])
 
                 vector_x = right_ear_coords[0] - left_ear_coords[0]
                 vector_y = right_ear_coords[1] - left_ear_coords[1]
 
+                # Calculate the angle relative to the positive x-axis
                 theta_rad = math.atan2(-vector_y, vector_x)
-                theta_deg = (math.degrees(theta_rad) + 90) % 360
+                theta_deg = math.degrees(theta_rad)
+                theta_deg = (theta_deg + 90) % 360
 
+                # Calculating the midpoint
                 midpoint_x = (left_ear_coords[0] + right_ear_coords[0]) / 2
                 midpoint_y = (left_ear_coords[1] + right_ear_coords[1]) / 2
 
+                # Midpoint coordinates
+                midpoint = (midpoint_x, midpoint_y)
+                
+                theta_rad = math.radians(theta_deg)
+                eyes_offset = 40
+                # Calculate the directional offsets using cosine and sine
+                offset_x = eyes_offset * math.cos(theta_rad)  # Offset along x based on heading
+                offset_y = eyes_offset * math.sin(theta_rad)  # Offset along y based on heading
+
+                # New midpoint coordinates after applying the offset
+                new_midpoint_x = midpoint_x + offset_x
+                new_midpoint_y = midpoint_y - offset_y  # Subtract because y-coordinates increase downwards in image coordinates
+
+                # New midpoint
+                midpoint = (new_midpoint_x, new_midpoint_y)
+
+                # -------- GET CUE PRESENTATION ANGLE FROM MOUSE HEADING: ------------------------
+
                 port_coordinates = session.port_coordinates
+                cue_onset_relative_angles = session.relative_angles
+
                 cue_offset_relative_angles = []
+                # Convert mouse heading to radians for calculation
                 mouse_heading_rad = np.deg2rad(theta_deg)
 
                 for port_x, port_y in port_coordinates:
-                    vector_x = port_x - midpoint_x
-                    vector_y = port_y - midpoint_y
+                    # Calculate vector from midpoint to the port
+                    vector_x = port_x - midpoint[0]
+                    vector_y = port_y - midpoint[1]
+
+                    # Calculate the angle from the x-axis to this vector
                     port_angle_rad = math.atan2(-vector_y, vector_x)
-                    relative_angle_deg = math.degrees(port_angle_rad - mouse_heading_rad) % 360
+
+                    # Calculate the relative angle
+                    relative_angle_rad = port_angle_rad - mouse_heading_rad
+
+                    # Convert relative angle to degrees and make sure it is within [0, 360)
+                    relative_angle_deg = math.degrees(relative_angle_rad) % 360
+
+                    # Append calculated relative angle to list
                     cue_offset_relative_angles.append(relative_angle_deg)
 
                 correct_port = trial["correct_port"]
@@ -140,18 +185,19 @@ def mouse_heading_cue_offset(sessions,
                     correct_port = 1
                 port = int(correct_port) - 1
                 cue_angle = cue_offset_relative_angles[port] % 360
+
                 if cue_angle > 180:
                     cue_angle -= 360
                 elif cue_angle <= -180:
                     cue_angle += 360
 
                 end_angle = cue_angle
-                delta_angle = start_angle - end_angle % 360
+                delta_angle = start_angle - end_angle 
 
-                if delta_angle > 180:
-                    delta_angle -= 360
-                elif delta_angle <= -180:
-                    delta_angle += 360
+                # if delta_angle > 180:
+                #     delta_angle -= 360
+                # elif delta_angle <= -180:
+                #     delta_angle += 360
 
                 percentage_turn = delta_angle / start_angle
                 percentages.append(percentage_turn)
@@ -160,7 +206,7 @@ def mouse_heading_cue_offset(sessions,
         sem = np.std(percentages) / np.sqrt(len(percentages))
         sd = np.std(percentages)
 
-        return average_percentage
+        return average_percentage * 100
 
     success_data = {}
     unsuccessful_data = {}
@@ -234,17 +280,17 @@ def mouse_heading_cue_offset(sessions,
         ax.legend(loc='upper right')
 
     # Plot the averages as a solid line
-    ax.plot(x, averages, color='b', marker='o', linestyle='-', lw=2)
+    ax.plot(x, averages, color=(0, 0.68, 0.94), marker='o', linestyle='-', lw=2)
 
     # Shading the area to represent SEM
     ax.fill_between(x, 
                     np.array(averages) - np.array(sems),  # Lower bound (mean - SEM)
                     np.array(averages) + np.array(sems),  # Upper bound (mean + SEM)
-                    color='b', alpha=0.2)
+                    color=lighten_color((0, 0.68, 0.94)), alpha=0.2)
 
     # Customizing the plot
     ax.set_xticks(x)
-    ax.set_xticklabels(bin_titles, rotation=45, ha="right")
+    ax.set_xticklabels(bin_titles, rotation=0, ha="right", fontsize=12)
     ax.set_xlabel('Cue presentation duration (ms)', fontsize=14)
     ax.set_ylabel('% of turn completed at cue offset', fontsize=14)
     ax.set_title(title, fontsize=16)

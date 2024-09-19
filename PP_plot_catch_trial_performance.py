@@ -4,9 +4,18 @@ from pathlib import Path
 from Cohort_folder import Cohort_folder
 import json
 import numpy as np
+from scipy.stats import ttest_rel
+from datetime import datetime
 
+# Define your colors
+colors = {
+    "normal": (0, 0.68, 0.94),
+    "catch": (0.93, 0, 0.55)
+}
 
-
+# Function to lighten a color for shaded regions
+def lighten_color(color, factor=0.5):
+    return tuple(min(1, c + (1 - c) * factor) for c in color)
 
 def plot_performance_by_angle(sessions, 
                               title = 'title', 
@@ -15,7 +24,8 @@ def plot_performance_by_angle(sessions,
                               trials_per_bin=10, 
                               plot_mode='radial', 
                               cue_mode='both',
-                              error_bars = 'SEM'):
+                              error_bars = 'SEM',
+                              output_path = None):
     """
     This function takes a list of sessions and plots the performance by angle of all trials in the sessions given.
     ### Inputs: 
@@ -64,6 +74,16 @@ def plot_performance_by_angle(sessions,
                     trials[mouse]['trials'].append(trial)
 
 
+    if plot_mode == 'linear_comparison' \
+        or plot_mode == 'bar_split' \
+            or plot_mode == 'bar_split_overlay':
+        limits = (0, 180)
+        num_bins = 10
+    else:
+        limits = (-180, 180)
+
+    angle_range = limits[1] - limits[0]
+
     # bin the trials into 30 degree bins, ranging from 180 to -180
     n = len(total_trials)
     if bin_mode == 'manual':
@@ -75,7 +95,7 @@ def plot_performance_by_angle(sessions,
     else:
         raise ValueError('bin_mode must be "manual", "rice" or "tpb"')
 
-    bin_size = round(360 / num_bins)
+    bin_size = round(angle_range / num_bins)
 
     bin_titles = []
     performance = []
@@ -84,12 +104,13 @@ def plot_performance_by_angle(sessions,
 
         for mouse in trials:
 
-            left_bins = {i: [] for i in range(0, 180, bin_size)}
-            right_bins = {i: [] for i in range(0, 180, bin_size)}
+            left_bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
+            right_bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
 
             # Bin trials based on turn direction and angle
             for trial in trials[mouse]['trials']:
                 if trial["turn_data"] is not None:
+
                     angle = trial["turn_data"]["cue_presentation_angle"]
                     if trial["next_sensor"] != {}:
                         correct = int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1])
@@ -121,15 +142,18 @@ def plot_performance_by_angle(sessions,
 
     else:
         for mouse in trials:
-            bins_normal = {i: [] for i in range(-180, 180, bin_size)}
-            bins_catch = {i: [] for i in range(-180, 180, bin_size)}
+            bins_normal = {i: [] for i in range(limits[0], limits[1], bin_size)}
+            bins_catch = {i: [] for i in range(limits[0], limits[1], bin_size)}
 
             catch_count = 0
             normal_count = 0
 
             for trial in trials[mouse]['trials']:
                 if trial["turn_data"] != None:
-                    angle = trial["turn_data"]["cue_presentation_angle"]
+                    if plot_mode == 'linear_comparison':
+                        angle = abs(trial["turn_data"]["cue_presentation_angle"])
+                    else:
+                        angle = trial["turn_data"]["cue_presentation_angle"]
                     for bin in bins_normal:
                         if angle < bin + bin_size and angle >= bin:
                             if trial['catch'] == True:
@@ -183,6 +207,28 @@ def plot_performance_by_angle(sessions,
         # Store catch data in the plotting_data dictionary
         plotting_data['catch'] = data_catch
 
+        # Ensure the number of data points (mice) in both normal and catch are the same
+        assert len(plotting_data['normal']['performance_data']) == len(plotting_data['catch']['performance_data']), "Mismatch in number of mice"
+
+        # Perform paired t-tests for each bin and store p-values
+        p_values = []
+        for bin_index in range(plotting_data['normal']['performance_data'].shape[1]):  # Loop through each bin
+            normal_bin_data = plotting_data['normal']['performance_data'][:, bin_index]
+            catch_bin_data = plotting_data['catch']['performance_data'][:, bin_index]
+
+            # Perform a paired t-test between normal and catch data for this bin
+            t_stat, p_val = ttest_rel(normal_bin_data, catch_bin_data)
+
+            # Store the p-value
+            p_values.append(p_val)
+
+        # Convert the p-values list to a numpy array
+        p_values = np.array(p_values)
+
+        # Add the p-values to the plotting_data dictionary
+        plotting_data['p_values'] = p_values
+
+
 
     def plot_performance(bin_titles, performance, errors, title, color_map='viridis'):
         plt.figure(figsize=(10, 6))
@@ -230,7 +276,7 @@ def plot_performance_by_angle(sessions,
 
         # Set the x-ticks to correspond to bin_titles
         plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(0, 180)
+        plt.xlim(limits[0], limits[1])
         plt.ylim(0, 1)
 
         plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
@@ -265,14 +311,11 @@ def plot_performance_by_angle(sessions,
         plt.figure(figsize=(8, 8))
         ax = plt.subplot(111, polar=True)
 
-        # Define colors for different lines (you can adjust these)
-        colors = {
-            'normal': 'royalblue',
-            'catch': 'tomato'
-        }
 
         # Iterate through the plotting data dictionary to plot both normal and catch data
         for key, data in plotting_data.items():
+            if key == 'p_values':
+                continue
             performance_data = np.append(data['performance_mean'], data['performance_mean'][0])
             performance_sem = np.append(data['performance_sem'], data['performance_sem'][0])
             performance_sd = np.append(data['performance_sd'], data['performance_sd'][0])
@@ -282,13 +325,13 @@ def plot_performance_by_angle(sessions,
 
             # Add the shaded region for standard deviation or SEM
             if error_bars == 'SD':
-                ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd, color=colors[key], alpha=0.4)
+                ax.fill_between(angles_rad, performance_data - performance_sd, performance_data + performance_sd, color=lighten_color(colors[key]), alpha=0.4)
             elif error_bars == 'SEM':
-                ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem, color=colors[key], alpha=0.4)
+                ax.fill_between(angles_rad, performance_data - performance_sem, performance_data + performance_sem, color=lighten_color(colors[key]), alpha=0.4)
 
         # Adjusting tick labels to reflect left (-) and right (+) turns
-        tick_locs = np.radians(np.arange(-180, 181, 30)) % (2 * np.pi)  # Tick locations, adjusted for wrapping
-        tick_labels = [f"{int(deg)}" for deg in np.arange(-180, 181, 30)]  # Custom labels from -180 to 180
+        tick_locs = np.radians(np.arange(limits[0], limits[1]+1, 30)) % (2 * np.pi)  # Tick locations, adjusted for wrapping
+        tick_labels = [f"{int(deg)}" for deg in np.arange(limits[0], limits[1]+1, 30)]  # Custom labels from -180 to 180
 
         ax.set_xticks(tick_locs)
         ax.set_xticklabels(tick_labels)
@@ -308,5 +351,110 @@ def plot_performance_by_angle(sessions,
         # Add a legend
         ax.legend(loc='upper right')
 
+        sub_dir_name = 'catch_trial_plots'
+        # Check if the directory exists in the output path, and create it if it doesn't
+        final_output_path = output_path / sub_dir_name  # Create the full path
+        if not final_output_path.exists():
+            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+
+        # Define the base filename with date and time
+        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+        output_filename = f"{date_time}_plot_performance_by_angle_radial.svg"
+
+        # Check for existing files and modify filename if necessary
+        counter = 0
+        while (final_output_path / output_filename).exists():
+            output_filename = f"{date_time}_plot_performance_by_angle_radial_{counter}.svg"
+            counter += 1
+
+        # Save the plot as SVG in the desired folder
+        print(f"Saving plot to: '{final_output_path / output_filename}'")
+        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+
         # Show the plot
+        plt.show()
+
+    if plot_mode == 'linear_comparison':
+
+        # Prepare the angles as a numeric sequence
+        angles_deg = np.array(bin_titles, dtype=np.float64)  # Original angles, from -180 to 180
+
+        # Create a line plot
+        plt.figure(figsize=(10, 6))
+        ax = plt.subplot(111)
+
+        # Iterate through the plotting data dictionary to plot both normal and catch data
+        for key, data in plotting_data.items():
+            if key == 'p_values':
+                continue
+            performance_data = data['performance_mean']
+            performance_sem = data['performance_sem']
+            performance_sd = data['performance_sd']
+
+            # Plot the line for this dataset
+            ax.plot(angles_deg, performance_data, marker='o', color=colors[key], label=key.capitalize())
+
+            # Add the shaded region for standard deviation or SEM
+            if error_bars == 'SD':
+                ax.fill_between(angles_deg, performance_data - performance_sd, performance_data + performance_sd, color=lighten_color(colors[key]), alpha=0.4)
+            elif error_bars == 'SEM':
+                ax.fill_between(angles_deg, performance_data - performance_sem, performance_data + performance_sem, color=lighten_color(colors[key]), alpha=0.4)
+
+        # Add stars for significant p-values
+        p_values = plotting_data['p_values']
+        for i, p_val in enumerate(p_values):
+            if p_val < 0.05:
+                # Find the maximum y value (performance) for this point to place the star above
+                max_performance = max(plotting_data['normal']['performance_mean'][i], plotting_data['catch']['performance_mean'][i])
+
+                # Add a star above the data point (adjust the vertical position as needed)
+                ax.text(angles_deg[i] + 10, max_performance + 0.05, f'* (p={round(p_val, 3)})', fontsize=14, color='black', ha='center')
+
+        # Labeling the axes
+        ax.set_xlabel('Turn Angle (degrees)', fontsize=14)
+        ax.set_ylabel('Performance', fontsize=14)
+
+        # Set the x-ticks to correspond to the bin_titles
+        ax.set_xticks(angles_deg)  # Set x-ticks to the center of each bin
+        ax.set_xticklabels(angles_deg, rotation=45)  # Use bin titles as labels
+
+        # Set limits for x and y axes
+        ax.set_xlim(limits[0], limits[1])
+        ax.set_ylim(0, 1)
+
+        # Add a grid and legend
+        ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
+        ax.legend()
+
+        # Add text at the bottom right
+        text = f"Trials: {len(total_trials)} - Mice: {len(trials)}"
+        ax.text(0.21, 0.05, text, transform=ax.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='right', color='black')
+
+        # Add a title
+        ax.set_title(title, fontsize=16)
+
+        sub_dir_name = 'catch_trial_plots'
+        # Check if the directory exists in the output path, and create it if it doesn't
+        final_output_path = output_path / sub_dir_name  # Create the full path
+        if not final_output_path.exists():
+            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+
+        # Define the base filename with date and time
+        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+        output_filename = f"{date_time}_plot_performance_by_angle_linear.svg"
+
+        # Check for existing files and modify filename if necessary
+        counter = 0
+        while (final_output_path / output_filename).exists():
+            output_filename = f"{date_time}_plot_performance_by_angle_linear_{counter}.svg"
+            counter += 1
+
+        # Save the plot as SVG in the desired folder
+        print(f"Saving plot to: '{final_output_path / output_filename}'")
+        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+
+        # Show the plot
+        plt.tight_layout()
         plt.show()

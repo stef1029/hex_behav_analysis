@@ -624,6 +624,10 @@ class DetectTrials:
 
         if phase == '10':
             trial_list = self.merge_trials(trial_list)
+        
+        trial_list.sort(key=lambda trial: trial["cue_start"])
+        for i, trial in enumerate(trial_list):
+            trial['trial_no'] = i
 
         return trial_list
     
