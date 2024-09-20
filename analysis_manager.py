@@ -546,7 +546,7 @@ def main_MP():
 
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Data")
+    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/2409_September_cohort/Data")
 
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
@@ -566,22 +566,24 @@ def main_MP():
     logger.addHandler(console_handler)
     # --------------------------
 
-    Cohort = Cohort_folder(cohort_directory, multi = True)
+    Cohort = Cohort_folder(cohort_directory, multi = True, plot=False)
 
     directory_info = Cohort.cohort
 
     sessions_to_process = []
+    num_sessions = 0
 
-    # refresh = False
+    refresh = False
     
-    # for mouse in directory_info["mice"]:
-    #     for session in directory_info["mice"][mouse]["sessions"]:
-    #         # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-    #         if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-    #             if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-    #                 sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
+    for mouse in directory_info["mice"]:
+        for session in directory_info["mice"][mouse]["sessions"]:
+            num_sessions += 1
+            # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+            if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
+                if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
+                    sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
 
-    # print(f"Processing {len(sessions_to_process)} sessions...")
+    print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
 
     # timestamp_errors = [
@@ -600,20 +602,19 @@ def main_MP():
     # "240718_144701_wtjx307-6b",
     # "240719_153837_wtjx307-6b"]
 
-    timestamp_errors = [
-    "240723_161002_wtjx262-2a",
-    "240726_141523_wtjx307-6b"]
+    # timestamp_errors = [
+    # "240723_161002_wtjx262-2a",
+    # "240726_141523_wtjx307-6b"]
 
-    sessions_to_process = timestamp_errors
+    # sessions_to_process = timestamp_errors
     # print(Cohort.get_session(sessions_to_process))
     
-    sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
-    # print(sessions_to_process)
 
-    for session in sessions_to_process:
-        # print(session)
-        print(f"Processing {session.get('directory')}...")
-        Process_Raw_Behaviour_Data(session, logger = logger)
+
+    # for session in sessions_to_process:
+    #     # print(session)
+    #     print(f"Processing {session.get('directory')}...")
+    #     Process_Raw_Behaviour_Data(session, logger = logger)
 
 
 
@@ -651,9 +652,9 @@ def main_MP():
 
     # print(f"Processing {len(sessions_to_process)} sessions...")
 
-    # for session in sessions_to_process:
-    #     print(f"Processing {session.get('directory')}...")
-    #     Process_Raw_Behaviour_Data(session)
+    for session in sessions_to_process:
+        print(f"Processing {session.get('directory')}...")
+        Process_Raw_Behaviour_Data(session)
 
     directory_info = Cohort_folder(cohort_directory, multi = True, plot=True).cohort
 
