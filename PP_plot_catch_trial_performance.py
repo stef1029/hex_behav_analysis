@@ -100,202 +100,97 @@ def plot_performance_by_angle(sessions,
     bin_titles = []
     performance = []
     
-    if plot_mode == 'bar_split' or plot_mode == 'bar_split_overlay':
 
-        for mouse in trials:
+    for mouse in trials:
+        bins_normal = {i: [] for i in range(limits[0], limits[1], bin_size)}
+        bins_catch = {i: [] for i in range(limits[0], limits[1], bin_size)}
 
-            left_bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
-            right_bins = {i: [] for i in range(limits[0], limits[1], bin_size)}
+        catch_count = 0
+        normal_count = 0
 
-            # Bin trials based on turn direction and angle
-            for trial in trials[mouse]['trials']:
-                if trial["turn_data"] is not None:
-
+        for trial in trials[mouse]['trials']:
+            if trial["turn_data"] != None:
+                if plot_mode == 'linear_comparison':
+                    angle = abs(trial["turn_data"]["cue_presentation_angle"])
+                else:
                     angle = trial["turn_data"]["cue_presentation_angle"]
-                    if trial["next_sensor"] != {}:
-                        correct = int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1])
-                    else:
-                        correct = 0
-                        
-                    if angle < 0:  # Left turn
-                        bin_index = abs(angle) // bin_size * bin_size
-                        left_bins[bin_index].append(correct)
-                    elif angle > 0:  # Right turn
-                        bin_index = angle // bin_size * bin_size
-                        right_bins[bin_index].append(correct)
-
-            trials[mouse]['left_performance'] = calc_performance(left_bins)
-            trials[mouse]['right_performance'] = calc_performance(right_bins)
-            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(left_bins)] 
-
-        left_performance_data = np.array([trials[mouse]['left_performance'] for mouse in trials])
-        left_performance = np.mean(left_performance_data, axis=0)
-        left_performance_sd = np.std(left_performance_data, axis=0)
-        n = len(left_performance_data)
-        left_performance_sem = left_performance_sd / np.sqrt(n)
-
-        right_performance_data = np.array([trials[mouse]['right_performance'] for mouse in trials])
-        right_performance = np.mean(right_performance_data, axis=0)
-        right_performance_sd = np.std(right_performance_data, axis=0)
-        n = len(left_performance_data)
-        right_performance_sem = right_performance_sd / np.sqrt(n)
-
-    else:
-        for mouse in trials:
-            bins_normal = {i: [] for i in range(limits[0], limits[1], bin_size)}
-            bins_catch = {i: [] for i in range(limits[0], limits[1], bin_size)}
-
-            catch_count = 0
-            normal_count = 0
-
-            for trial in trials[mouse]['trials']:
-                if trial["turn_data"] != None:
-                    if plot_mode == 'linear_comparison':
-                        angle = abs(trial["turn_data"]["cue_presentation_angle"])
-                    else:
-                        angle = trial["turn_data"]["cue_presentation_angle"]
-                    for bin in bins_normal:
-                        if angle < bin + bin_size and angle >= bin:
-                            if trial['catch'] == True:
-                                catch_count += 1
-                                if trial["next_sensor"] != {}:
-                                    if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
-                                        bins_catch[bin].append(1)
-                                    else:
-                                        bins_catch[bin].append(0)
+                for bin in bins_normal:
+                    if angle < bin + bin_size and angle >= bin:
+                        if trial['catch'] == True:
+                            catch_count += 1
+                            if trial["next_sensor"] != {}:
+                                if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
+                                    bins_catch[bin].append(1)
                                 else:
                                     bins_catch[bin].append(0)
                             else:
-                                normal_count +=1
-                                if trial["next_sensor"] != {}:
-                                    if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
-                                        bins_normal[bin].append(1)
-                                    else:
-                                        bins_normal[bin].append(0)
+                                bins_catch[bin].append(0)
+                        else:
+                            normal_count +=1
+                            if trial["next_sensor"] != {}:
+                                if int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1]):
+                                    bins_normal[bin].append(1)
                                 else:
                                     bins_normal[bin].append(0)
-            # print(catch_count, normal_count)
+                            else:
+                                bins_normal[bin].append(0)
+        # print(catch_count, normal_count)
 
-            trials[mouse]['normal_performance'] = calc_performance(bins_normal)
-            trials[mouse]['catch_performance'] = calc_performance(bins_catch)
-            bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins_normal)]
+        trials[mouse]['normal_performance'] = calc_performance(bins_normal)
+        trials[mouse]['catch_performance'] = calc_performance(bins_catch)
+        bin_titles = [f"{int(key) + (bin_size / 2)}" for key in sorted(bins_normal)]
 
-        # Initialize the plotting_data dictionary
-        plotting_data = {}
+    # Initialize the plotting_data dictionary
+    plotting_data = {}
 
-        # Process and store normal performance data
-        data_normal = {}
-        normal_performance_data = np.array([trials[mouse]['normal_performance'] for mouse in trials])
-        data_normal['performance_data'] = normal_performance_data
-        data_normal['performance_mean'] = np.mean(normal_performance_data, axis=0)
-        data_normal['performance_sd'] = np.std(normal_performance_data, axis=0)
-        data_normal['n'] = len(normal_performance_data)     # n mice
-        data_normal['performance_sem'] = data_normal['performance_sd'] / np.sqrt(data_normal['n'])
+    # Process and store normal performance data
+    data_normal = {}
+    normal_performance_data = np.array([trials[mouse]['normal_performance'] for mouse in trials])
+    data_normal['performance_data'] = normal_performance_data
+    data_normal['performance_mean'] = np.mean(normal_performance_data, axis=0)
+    data_normal['performance_sd'] = np.std(normal_performance_data, axis=0)
+    data_normal['n'] = len(normal_performance_data)     # n mice
+    data_normal['performance_sem'] = data_normal['performance_sd'] / np.sqrt(data_normal['n'])
 
-        # Store normal data in the plotting_data dictionary
-        plotting_data['normal'] = data_normal
+    # Store normal data in the plotting_data dictionary
+    plotting_data['normal'] = data_normal
 
-        # Process and store catch performance data
-        data_catch = {}
-        catch_performance_data = np.array([trials[mouse]['catch_performance'] for mouse in trials])
-        data_catch['performance_data'] = catch_performance_data
-        data_catch['performance_mean'] = np.mean(catch_performance_data, axis=0)
-        data_catch['performance_sd'] = np.std(catch_performance_data, axis=0)
-        data_catch['n'] = len(catch_performance_data)       # n mice
-        data_catch['performance_sem'] = data_catch['performance_sd'] / np.sqrt(data_catch['n'])
+    # Process and store catch performance data
+    data_catch = {}
+    catch_performance_data = np.array([trials[mouse]['catch_performance'] for mouse in trials])
+    data_catch['performance_data'] = catch_performance_data
+    data_catch['performance_mean'] = np.mean(catch_performance_data, axis=0)
+    data_catch['performance_sd'] = np.std(catch_performance_data, axis=0)
+    data_catch['n'] = len(catch_performance_data)       # n mice
+    data_catch['performance_sem'] = data_catch['performance_sd'] / np.sqrt(data_catch['n'])
 
-        # Store catch data in the plotting_data dictionary
-        plotting_data['catch'] = data_catch
+    # Store catch data in the plotting_data dictionary
+    plotting_data['catch'] = data_catch
 
-        # Ensure the number of data points (mice) in both normal and catch are the same
-        assert len(plotting_data['normal']['performance_data']) == len(plotting_data['catch']['performance_data']), "Mismatch in number of mice"
+    # Ensure the number of data points (mice) in both normal and catch are the same
+    assert len(plotting_data['normal']['performance_data']) == len(plotting_data['catch']['performance_data']), "Mismatch in number of mice"
 
-        # Perform paired t-tests for each bin and store p-values
-        p_values = []
-        for bin_index in range(plotting_data['normal']['performance_data'].shape[1]):  # Loop through each bin
-            normal_bin_data = plotting_data['normal']['performance_data'][:, bin_index]
-            catch_bin_data = plotting_data['catch']['performance_data'][:, bin_index]
+    # Perform paired t-tests for each bin and store p-values
+    p_values = []
+    for bin_index in range(plotting_data['normal']['performance_data'].shape[1]):  # Loop through each bin
+        normal_bin_data = plotting_data['normal']['performance_data'][:, bin_index]
+        catch_bin_data = plotting_data['catch']['performance_data'][:, bin_index]
 
-            # Perform a paired t-test between normal and catch data for this bin
-            t_stat, p_val = ttest_rel(normal_bin_data, catch_bin_data)
+        # Perform a paired t-test between normal and catch data for this bin
+        t_stat, p_val = ttest_rel(normal_bin_data, catch_bin_data)
 
-            # Store the p-value
-            p_values.append(p_val)
+        # Store the p-value
+        p_values.append(p_val)
 
-        # Convert the p-values list to a numpy array
-        p_values = np.array(p_values)
+    # Convert the p-values list to a numpy array
+    p_values = np.array(p_values)
 
-        # Add the p-values to the plotting_data dictionary
-        plotting_data['p_values'] = p_values
+    # Add the p-values to the plotting_data dictionary
+    plotting_data['p_values'] = p_values
 
 
 
-    def plot_performance(bin_titles, performance, errors, title, color_map='viridis'):
-        plt.figure(figsize=(10, 6))
-        plt.style.use('ggplot')
 
-        # Use the color map for the line color
-        colors = plt.cm.get_cmap(color_map, len(bin_titles))
-
-        # Convert bin titles to numeric if they are not already, for plotting
-        bin_numeric = np.array(bin_titles, dtype=float)
-
-        # Create a line plot with error bars
-        plt.errorbar(bin_numeric, performance, yerr=errors, fmt='o-', color='royalblue', ecolor='lightsteelblue', elinewidth=3, capsize=0, linestyle='-', linewidth=2)
-        plt.text(0, 0, '±SEM', transform=plt.gca().transAxes, fontsize=12, verticalalignment='top', color='black')
-        plt.xlabel('Turn Angle (degrees)', fontsize=14)
-        plt.ylabel('Performance', fontsize=14)
-        plt.title(title, fontsize=16)
-
-        # Set the x-ticks to correspond to bin_titles
-        plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(0, 180)
-        plt.ylim(0, 1)
-
-        plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
-        plt.tight_layout()
-        plt.show()
-
-    def plot_performance_multi(bin_titles, left_performance, left_errors, right_performance, right_errors, left_title, right_title, color_map='viridis'):
-        plt.figure(figsize=(10, 6))
-        plt.style.use('ggplot')
-
-        # Use the color map for the line color
-        colors = plt.cm.get_cmap(color_map, len(bin_titles))
-
-        # Convert bin titles to numeric if they are not already, for plotting
-        bin_numeric = np.array(bin_titles, dtype=float)
-
-        # Create a line plot with error bars
-        plt.errorbar(bin_numeric, left_performance, yerr=left_errors, fmt='o-', color='royalblue', ecolor='lightsteelblue', elinewidth=3, capsize=0, linestyle='-', linewidth=2, label=left_title)
-        plt.errorbar(bin_numeric, right_performance, yerr=right_errors, fmt='o-', color='darkorange', ecolor='moccasin', elinewidth=3, capsize=0, linestyle='-', linewidth=2, label=right_title)
-        plt.text(0, -0.1, '±SEM', transform=plt.gca().transAxes, fontsize=12, verticalalignment='top', color='black')
-        plt.xlabel('Turn Angle (degrees)', fontsize=14)
-        plt.ylabel('Performance', fontsize=14)
-        plt.title(title, fontsize=16)
-
-        # Set the x-ticks to correspond to bin_titles
-        plt.xticks(bin_numeric, bin_titles, rotation=45)
-        plt.xlim(limits[0], limits[1])
-        plt.ylim(0, 1)
-
-        plt.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.7)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-    if plot_mode == 'bar_split':
-        
-        plot_performance(bin_titles, left_performance, left_performance_sem, 'Left Turn Performance')
-        plot_performance(bin_titles, right_performance, right_performance_sem, 'Right Turn Performance')
-
-    if plot_mode == 'bar_split_overlay':
-        plot_performance_multi(bin_titles, left_performance, left_performance_sem, right_performance, right_performance_sem, 'Left Turn Performance', 'Right Turn Performance')
-
-    # Bar plot:
-    if plot_mode == 'bar':
-
-        plot_performance(bin_titles, performance, performance_sem, title)
 
     # Radial Plot:
 
@@ -351,26 +246,35 @@ def plot_performance_by_angle(sessions,
         # Add a legend
         ax.legend(loc='upper right')
 
-        sub_dir_name = 'catch_trial_plots'
-        # Check if the directory exists in the output path, and create it if it doesn't
-        final_output_path = output_path / sub_dir_name  # Create the full path
-        if not final_output_path.exists():
-            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+        # ------ save figures ------    
+
+        # Create directory if it doesn't exist (but don't concatenate path multiple times)
+        if not output_path.exists():
+            output_path.mkdir(parents=True, exist_ok=True)
 
         # Define the base filename with date and time
         date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
-        output_filename = f"{date_time}_plot_performance_by_angle_radial.svg"
 
-        # Check for existing files and modify filename if necessary
+        base_filename = f"{date_time}_angular_performance_line"
+        output_filename_svg = f"{base_filename}.svg"
+        output_filename_png = f"{base_filename}.png"
+
+        # Check for existing SVG and PNG files and modify filenames if necessary
         counter = 0
-        while (final_output_path / output_filename).exists():
-            output_filename = f"{date_time}_plot_performance_by_angle_radial_{counter}.svg"
+        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+            output_filename_svg = f"{base_filename}_{counter}.svg"
+            output_filename_png = f"{base_filename}_{counter}.png"
             counter += 1
 
         # Save the plot as SVG in the desired folder
-        print(f"Saving plot to: '{final_output_path / output_filename}'")
-        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+        # Save the plot as PNG in the desired folder
+        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+
+        # --------------------------------------------
 
         # Show the plot
         plt.show()
@@ -434,26 +338,35 @@ def plot_performance_by_angle(sessions,
         # Add a title
         ax.set_title(title, fontsize=16)
 
-        sub_dir_name = 'catch_trial_plots'
-        # Check if the directory exists in the output path, and create it if it doesn't
-        final_output_path = output_path / sub_dir_name  # Create the full path
-        if not final_output_path.exists():
-            final_output_path.mkdir(parents=True)  # Create the directory, including any missing parents
+        # ------ save figures ------    
+
+        # Create directory if it doesn't exist (but don't concatenate path multiple times)
+        if not output_path.exists():
+            output_path.mkdir(parents=True, exist_ok=True)
 
         # Define the base filename with date and time
         date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
-        output_filename = f"{date_time}_plot_performance_by_angle_linear.svg"
 
-        # Check for existing files and modify filename if necessary
+        base_filename = f"{date_time}_angular_performance_line"
+        output_filename_svg = f"{base_filename}.svg"
+        output_filename_png = f"{base_filename}.png"
+
+        # Check for existing SVG and PNG files and modify filenames if necessary
         counter = 0
-        while (final_output_path / output_filename).exists():
-            output_filename = f"{date_time}_plot_performance_by_angle_linear_{counter}.svg"
+        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+            output_filename_svg = f"{base_filename}_{counter}.svg"
+            output_filename_png = f"{base_filename}_{counter}.png"
             counter += 1
 
         # Save the plot as SVG in the desired folder
-        print(f"Saving plot to: '{final_output_path / output_filename}'")
-        plt.savefig(final_output_path / output_filename, format='svg', bbox_inches='tight')
+        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+        # Save the plot as PNG in the desired folder
+        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+
+        # --------------------------------------------
 
         # Show the plot
         plt.tight_layout()
