@@ -268,7 +268,8 @@ class Session:
         frame_width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
         fourcc = cv.VideoWriter_fourcc(*'mp4v')
-        print(f"FPS: {fps}, Width: {frame_width}, Height: {frame_height}")
+        total_frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+        print(f"FPS: {fps}, Width: {frame_width}, Height: {frame_height}, frame count: {total_frame_count}")
         out = cv.VideoWriter(str(output_filename), fourcc, fps, (frame_width, frame_height))
 
         if not out.isOpened():

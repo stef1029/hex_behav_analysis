@@ -24,8 +24,11 @@ class process_ADC_Recordings:
         self.dirname = dirname
         self.rig = rig or 1
 
+        print("Extracting ADC data...")
         self.extract_ADC_data()
+        print("Extracting DAQ pulses...")
         self.get_DAQ_pulses()
+        print("Extracting camera pulses...")
         self.get_camera_pulses()
 
     def extract_ADC_data(self):
@@ -148,6 +151,6 @@ class process_ADC_Recordings:
 
 if __name__ == "__main__":
     # test = process_ADC_Recordings(r"E:\Test_output\240906_001430\240906_001430_OEAB_recording")
-    test = process_ADC_Recordings(r"E:\Test_output\240906_024544\240906_024544_OEAB_recording")
+    test = process_ADC_Recordings(r"C:\Data\temp_cohort\240917_153225\240917_153225_OEAB_recording")
     
     test.view_ADC_data("ADC2")
