@@ -252,18 +252,29 @@ class Session:
                     "cue": trial['correct_port']
                 }
 
-        # Set up video capture and output
-        output_folder = Path(output_path) / "drawn_videos" if output_path is not None else r"V:\test_output"
+        output_folder = Path(output_path) / "drawn_videos" if output_path is not None else Path(r"V:\test_output")
         filename = f"{self.session_ID}_LEDs.mp4"
         output_filename = output_folder / filename
-        
+
+        # Ensure the output directory exists
+        output_folder.mkdir(parents=True, exist_ok=True)
+
         cap = cv.VideoCapture(str(self.session_video))
+        if not cap.isOpened():
+            print(f"Error: Could not open video file {self.session_video}")
+            return
+
         fps = cap.get(cv.CAP_PROP_FPS)
         frame_width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
         fourcc = cv.VideoWriter_fourcc(*'mp4v')
+        print(f"FPS: {fps}, Width: {frame_width}, Height: {frame_height}")
         out = cv.VideoWriter(str(output_filename), fourcc, fps, (frame_width, frame_height))
 
+        if not out.isOpened():
+            print("Error: VideoWriter failed to open.")
+            return
+        
         centre = (int(frame_width / 2), int(frame_height / 2))
         cue_position = (frame_height / 2) - 25
 
@@ -278,27 +289,31 @@ class Session:
         self.UP = "\033[1A"
         self.CLEAR = '\x1b[2K'
 
-        for i in range(start, end):
-            cap.set(cv.CAP_PROP_POS_FRAMES, i)
+        frame_index = 0
+        while frame_index < end:
             ret, frame = cap.read()
-            if ret:
-                # Update progress every 100 frames or so to avoid flooding the console
-                if i % 100 == 0:
-                    print(f"Processing frame {i}/{end}", end=self.CLEAR + self.UP)
+            if not ret:
+                print("Error: Failed to read frame from video.")
+                break
+
+            if frame_index >= start:
+                # Update progress every 100 frames or so
+                if frame_index % 100 == 0:
+                    print(f"Processing frame {frame_index}/{end}", end=self.CLEAR + self.UP)
 
                 # Check if current frame should have annotations
-                if i in frame_text:
+                if frame_index in frame_text:
                     frame = cv.putText(
-                        frame, frame_text[i]["text"], (50, 50), cv.FONT_HERSHEY_SIMPLEX,
+                        frame, frame_text[frame_index]["text"], (50, 50), cv.FONT_HERSHEY_SIMPLEX,
                         1, (0, 255, 0), 2, cv.LINE_AA
                     )
-                    port = frame_text[i]["cue"]
+                    port = frame_text[frame_index]["cue"]
                     try:
                         port = int(port) - 1
                         port_angle = port_angles[port]
                         x2 = int(centre[0] + cue_position * math.cos(math.radians(port_angle)))
                         y2 = int(centre[1] - cue_position * math.sin(math.radians(port_angle)))
-                        # Draw a * at the cue position
+                        # Draw a marker at the cue position
                         frame = cv.drawMarker(
                             frame, (x2, y2), (0, 255, 0), markerType=cv.MARKER_STAR,
                             markerSize=30, thickness=2, line_type=cv.LINE_AA
@@ -308,6 +323,8 @@ class Session:
 
                 # Write the processed frame to the output
                 out.write(frame)
+
+            frame_index += 1
 
         # Release resources
         cap.release()
