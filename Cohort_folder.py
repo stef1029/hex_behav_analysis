@@ -165,7 +165,7 @@ class Cohort_folder:
                         self.cohort_concise["incomplete_data"][mouse][session]["Behaviour_phase"] = behaviour_phase
                         self.cohort_concise["incomplete_data"][mouse][session]["total_trials"] = total_trials
                         self.cohort_concise["incomplete_data"][mouse][session]["video_length"] = video_length
-                        self.cohort_concise["complete_data"][mouse][session]["mouse_id"] = mouse
+                        self.cohort_concise["incomplete_data"][mouse][session]["mouse_id"] = mouse
                 except:
 
 
