@@ -7,6 +7,7 @@ import seaborn as sns
 import numpy as np
 import re
 import traceback
+from datetime import datetime
 
 from pynwb import NWBHDF5IO, NWBFile, TimeSeries, ProcessingModule, load_namespaces
 from pynwb.behavior import SpatialSeries
@@ -23,12 +24,13 @@ from pynwb.spec import NWBNamespaceBuilder, NWBGroupSpec, export_spec
 
 
 class Cohort_folder:
-    def __init__(self, cohort_directory, multi = True, plot = False, portable_data = False):        # could have a function that detects if it's multi automatically
+    def __init__(self, cohort_directory, multi = True, plot = False, portable_data = False, OEAB_legacy = True):        # could have a function that detects if it's multi automatically
         print('Loading cohort info...')
         self.cohort_directory = Path(cohort_directory)
         self.multi = multi
         self.plot = plot
         self.portable_data = portable_data
+        self.OEAB_legacy = OEAB_legacy
 
         # check if folder exists:
         if not self.cohort_directory.exists():
@@ -165,7 +167,7 @@ class Cohort_folder:
                         self.cohort_concise["incomplete_data"][mouse][session]["Behaviour_phase"] = behaviour_phase
                         self.cohort_concise["incomplete_data"][mouse][session]["total_trials"] = total_trials
                         self.cohort_concise["incomplete_data"][mouse][session]["video_length"] = video_length
-                        self.cohort_concise["complete_data"][mouse][session]["mouse_id"] = mouse
+                        self.cohort_concise["incomplete_data"][mouse][session]["mouse_id"] = mouse
                 except:
 
 
@@ -340,8 +342,12 @@ class Cohort_folder:
                 raw_data["raw_video"] = str(self.find_file(session_folder, '.avi'));
                 raw_data["behaviour_data"] = str(self.find_file(session_folder, 'behaviour_data')); check_list.append(raw_data["behaviour_data"])
                 raw_data["tracker_data"] = str(self.find_file(session_folder, 'Tracker_data')); check_list.append(raw_data["tracker_data"])
-                raw_data["arduino_DAQ"] = str(self.find_file(session_folder, 'ArduinoDAQ')); check_list.append(raw_data["arduino_DAQ"])
-                raw_data["OEAB"] = str(self.find_OEAB_dir(session_folder, mouse)); check_list.append(raw_data["OEAB"])
+                if self.OEAB_legacy:
+                    raw_data["arduino_DAQ_json"] = str(self.find_file(session_folder, 'ArduinoDAQ.json')); check_list.append(raw_data["arduino_DAQ_json"])
+                    raw_data["OEAB"] = str(self.find_OEAB_dir(session_folder, mouse)); check_list.append(raw_data["OEAB"])
+                else:
+                    raw_data["arduino_DAQ_h5"] = str(self.find_file(session_folder, 'ArduinoDAQ.h5')); check_list.append(raw_data["arduino_DAQ_h5"])
+                
 
                 bmp_file_check = True if self.find_file(session_folder, 'temp') != None else False
                 video_check = "None" if raw_data["raw_video"] == "None" and bmp_file_check == False else True
@@ -371,17 +377,22 @@ class Cohort_folder:
                 missing_files.append("raw_video") if raw_data["raw_video"] == "None" else None
                 missing_files.append("behaviour_data") if raw_data["behaviour_data"] == "None" else None
                 missing_files.append("tracker_data") if raw_data["tracker_data"] == "None" else None
-                missing_files.append("arduino_DAQ") if raw_data["arduino_DAQ"] == "None" else None
-                missing_files.append("OEAB") if raw_data["OEAB"] == "None" else None
+                
+                if self.OEAB_legacy:
+                    missing_files.append("arduino_DAQ_json") if raw_data["arduino_DAQ_json"] == "None" else None
+                    missing_files.append("OEAB") if raw_data["OEAB"] == "None" else None
+                else:
+                    missing_files.append("arduino_DAQ_h5") if raw_data["arduino_DAQ_h5"] == "None" else None
 
                 raw_data["missing_files"] = missing_files
 
                 # get OEAB file info:
-                OEAB_contents = self.get_OEAB_file_info(raw_data["OEAB"])
-                raw_data["OEAB_contents"] = OEAB_contents
+                if self.OEAB_legacy:
+                    OEAB_contents = self.get_OEAB_file_info(raw_data["OEAB"])
+                    raw_data["OEAB_contents"] = OEAB_contents
 
                 # get length of video:
-                raw_data["video_length"] = self.get_video_length(raw_data["raw_video"])
+                raw_data["video_length"] = self.get_video_length(raw_data["tracker_data"])
 
                 # get session metadata:
                 raw_data["session_metadata"] = self.get_session_metadata(raw_data["behaviour_data"])
@@ -389,19 +400,25 @@ class Cohort_folder:
                 # add raw data to cohort:
                 self.cohort["mice"][mouse]["sessions"][session]["raw_data"] = raw_data
 
-    def get_video_length(self, video_file):
-        if video_file != "None":
-            video = cv.VideoCapture(video_file)
-            fps = video.get(cv.CAP_PROP_FPS)
-            frame_count = int(video.get(cv.CAP_PROP_FRAME_COUNT))
-            video.release()
-            # Calculate the video duration in seconds and then convert to minutes and seconds
-            duration_seconds = frame_count / fps if fps else 0
-            minutes = int(duration_seconds // 60)
-            seconds = int(duration_seconds % 60)
-            
-            return f"{minutes}m{seconds}s"
-            # return f"{video_file}"
+    def get_video_length(self, tracker_data):
+
+        if tracker_data != "None":
+            with open(tracker_data) as f:
+                data = json.load(f)
+                start_str = data["start_time"]
+                end_str = data["end_time"]
+
+                # Define the format for parsing the timestamps
+                time_format = "%y%m%d_%H%M%S"
+
+                # Convert the strings into datetime objects
+                start = datetime.strptime(start_str, time_format)
+                end = datetime.strptime(end_str, time_format)
+
+                # Calculate the difference in minutes
+                duration = (end - start).total_seconds() / 60
+
+                return round(duration)
         else:
             return None
     

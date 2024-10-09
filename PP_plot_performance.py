@@ -245,32 +245,33 @@ def plot_performance_by_angle(sessions,
 
         # ------ save figures ------    
 
-        # Create directory if it doesn't exist (but don't concatenate path multiple times)
-        if not output_path.exists():
-            output_path.mkdir(parents=True, exist_ok=True)
+        if output_path is not None:
+            # Create directory if it doesn't exist (but don't concatenate path multiple times)
+            if not output_path.exists():
+                output_path.mkdir(parents=True, exist_ok=True)
 
-        # Define the base filename with date and time
-        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Define the base filename with date and time
+            date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
-        base_filename = f"{date_time}_angular_performance_line_{cue_modes_str}"
-        output_filename_svg = f"{base_filename}.svg"
-        output_filename_png = f"{base_filename}.png"
+            cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+            base_filename = f"{date_time}_angular_performance_line_{cue_modes_str}"
+            output_filename_svg = f"{base_filename}.svg"
+            output_filename_png = f"{base_filename}.png"
 
-        # Check for existing SVG and PNG files and modify filenames if necessary
-        counter = 0
-        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
-            output_filename_svg = f"{base_filename}_{counter}.svg"
-            output_filename_png = f"{base_filename}_{counter}.png"
-            counter += 1
+            # Check for existing SVG and PNG files and modify filenames if necessary
+            counter = 0
+            while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+                output_filename_svg = f"{base_filename}_{counter}.svg"
+                output_filename_png = f"{base_filename}_{counter}.png"
+                counter += 1
 
-        # Save the plot as SVG in the desired folder
-        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
-        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+            # Save the plot as SVG in the desired folder
+            print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+            plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
 
-        # Save the plot as PNG in the desired folder
-        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
-        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+            # Save the plot as PNG in the desired folder
+            print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+            plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
 
         # --------------------------------------------
 
@@ -358,32 +359,33 @@ def plot_performance_by_angle(sessions,
 
         # ------ save figures ------    
 
-        # Create directory if it doesn't exist (but don't concatenate path multiple times)
-        if not output_path.exists():
-            output_path.mkdir(parents=True, exist_ok=True)
+        if output_path is not None:
+            # Create directory if it doesn't exist (but don't concatenate path multiple times)
+            if not output_path.exists():
+                output_path.mkdir(parents=True, exist_ok=True)
 
-        # Define the base filename with date and time
-        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Define the base filename with date and time
+            date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
-        base_filename = f"{date_time}_angular_performance_line_{cue_modes_str}"
-        output_filename_svg = f"{base_filename}.svg"
-        output_filename_png = f"{base_filename}.png"
+            cue_modes_str = '_'.join(cue_modes)  # Join list elements into a string
+            base_filename = f"{date_time}_angular_performance_line_{cue_modes_str}"
+            output_filename_svg = f"{base_filename}.svg"
+            output_filename_png = f"{base_filename}.png"
 
-        # Check for existing SVG and PNG files and modify filenames if necessary
-        counter = 0
-        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
-            output_filename_svg = f"{base_filename}_{counter}.svg"
-            output_filename_png = f"{base_filename}_{counter}.png"
-            counter += 1
+            # Check for existing SVG and PNG files and modify filenames if necessary
+            counter = 0
+            while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+                output_filename_svg = f"{base_filename}_{counter}.svg"
+                output_filename_png = f"{base_filename}_{counter}.png"
+                counter += 1
 
-        # Save the plot as SVG in the desired folder
-        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
-        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+            # Save the plot as SVG in the desired folder
+            print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+            plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
 
-        # Save the plot as PNG in the desired folder
-        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
-        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+            # Save the plot as PNG in the desired folder
+            print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+            plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
 
         # --------------------------------------------
 

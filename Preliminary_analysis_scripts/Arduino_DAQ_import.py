@@ -31,7 +31,7 @@ class Arduino_DAQ_Import:
                                 "SENSOR5", "SENSOR2", "SENSOR4", "SENSOR3", "BUZZER4", "LED_3", "LED_4", 
                                 "BUZZER3", "BUZZER5", "LED_2", "LED_5", "BUZZER2", "BUZZER6", "LED_1", 
                                 "LED_6", "BUZZER1", "VALVE4", "VALVE3", "VALVE5", "VALVE2", "VALVE6", 
-                                "VALVE1", "GO_CUE", "NOGO_CUE")
+                                "VALVE1", "GO_CUE", "NOGO_CUE", "CAMERA")
 
         self.channel_data = {channel: [] for channel in self.channel_indices}
         self.channel_data["message_ids"] = self.message_ids
