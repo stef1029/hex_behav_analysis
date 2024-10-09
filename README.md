@@ -129,21 +129,19 @@ conda create -n behaviour_analysis python==3.10 -y
 ### 3. Install dependancies
 Activate the environment. Use pip install to add the necessary libraries:
 ```bash
-python -m pip install pynwb==2.3.3 open-ephys-python-tools colorama
+python -m pip install pynwb==2.3.3 open-ephys-python-tools colorama 
 ```
 ```bash
-conda install matplotlib numpy seaborn opencv-contrib-python scipy 
+conda install matplotlib numpy seaborn scipy opencv
 ```
 
 ---
 
 ### Troubleshooting
 
-If you encounter any issues during the environment setup, ensure that:
-- You have the latest version of Conda installed.
-- The `environment.yml` file is correctly formatted and located in the root directory of the project.
-
-For further assistance, refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/index.html).
+If you encounter any issues during the environment setup
+- Ensure that you have the latest version of Conda installed.
+- Try uninstalling and reinstalling individual modules. Some can be strange and need you to install via conda to work.
 
 ---
 
