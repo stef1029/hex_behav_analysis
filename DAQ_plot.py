@@ -31,8 +31,18 @@ class DAQ_plot:
 
     def plot_all(self, DAQ_data, start = 0, end = None):
 
-        channel_order = ("SPOT1", "SPOT2", "SPOT3", "SPOT4", "SPOT5", "SPOT6", "SENSOR1", "SENSOR2", "SENSOR3", "SENSOR4", "SENSOR5", "SENSOR6", "LED_1", "LED_2", "LED_3", "LED_4", "LED_5", "LED_6", "BUZZER1", "BUZZER2", "BUZZER3", "BUZZER4", "BUZZER5", "BUZZER6", "VALVE1", "VALVE2", "VALVE3", "VALVE4", "VALVE5", "VALVE6", "GO_CUE", "NOGO_CUE")
-
+        channel_order = (
+            "SPOT1", "SPOT2", "SPOT3", "SPOT4", "SPOT5", "SPOT6", 
+            "SENSOR1", "LED_1", "VALVE1", 
+            "SENSOR2", "LED_2", "VALVE2", 
+            "SENSOR3", "LED_3", "VALVE3", 
+            "SENSOR4", "LED_4", "VALVE4", 
+            "SENSOR5", "LED_5", "VALVE5", 
+            "SENSOR6", "LED_6", "VALVE6", 
+            "BUZZER1", "BUZZER2", "BUZZER3", "BUZZER4", "BUZZER5", "BUZZER6", 
+            "GO_CUE", "NOGO_CUE"
+        )
+        
         scales_axes = 1
 
         fig = plt.figure(figsize=(18, 10))

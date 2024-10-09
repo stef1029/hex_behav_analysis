@@ -59,7 +59,7 @@ class Process_Raw_Behaviour_Data:
         self.raw_video_Path = Path(self.session.get("raw_data")["raw_video"])
         self.behaviour_data_Path = Path(self.session.get("raw_data")["behaviour_data"])
         self.tracker_data_Path = Path(self.session.get("raw_data")["tracker_data"])
-        self.arduino_DAQ_Path = Path(self.session.get("raw_data")["arduino_DAQ"])
+        self.arduino_DAQ_Path = Path(self.session.get("raw_data")["arduino_DAQ_json"])
         self.OEAB_folder = Path(self.session.get("raw_data")["OEAB"])
 
         print("Files found, processing...")
@@ -575,19 +575,21 @@ def main_MP():
 
     refresh = False
     
-    # for mouse in directory_info["mice"]:
-    #     for session in directory_info["mice"][mouse]["sessions"]:
-    #         num_sessions += 1
-    #         # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-    #         if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-    #             if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-    #                 sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
+    for mouse in directory_info["mice"]:
+        for session in directory_info["mice"][mouse]["sessions"]:
+            num_sessions += 1
+            # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+            if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
+                if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
+                    date = session[:6]
+                    if int(date) >= 241001:
+                        sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
 
-    # print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
+    print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
-    # sessions_to_process = ['240909_140114_mtao89-1d']
-    sessions_to_process = ['240909_162750_mtao93-1b']
-    sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
+    # # sessions_to_process = ['240909_140114_mtao89-1d']
+    # sessions_to_process = ['240909_162750_mtao93-1b']
+    # sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
 
     for session in sessions_to_process:
         print(f"Processing {session.get('directory')}...")
