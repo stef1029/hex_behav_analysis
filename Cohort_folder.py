@@ -404,21 +404,25 @@ class Cohort_folder:
 
         if tracker_data != "None":
             with open(tracker_data) as f:
-                data = json.load(f)
-                start_str = data["start_time"]
-                end_str = data["end_time"]
+                try:
+                    data = json.load(f)
+                    start_str = data["start_time"]
+                    end_str = data["end_time"]
 
-                # Define the format for parsing the timestamps
-                time_format = "%y%m%d_%H%M%S"
+                    # Define the format for parsing the timestamps
+                    time_format = "%y%m%d_%H%M%S"
 
-                # Convert the strings into datetime objects
-                start = datetime.strptime(start_str, time_format)
-                end = datetime.strptime(end_str, time_format)
+                    # Convert the strings into datetime objects
+                    start = datetime.strptime(start_str, time_format)
+                    end = datetime.strptime(end_str, time_format)
 
-                # Calculate the difference in minutes
-                duration = (end - start).total_seconds() / 60
+                    # Calculate the difference in minutes
+                    duration = (end - start).total_seconds() / 60
 
-                return round(duration)
+                    return round(duration)
+                
+                except ValueError:
+                    return None
         else:
             return None
     

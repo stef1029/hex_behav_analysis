@@ -129,11 +129,12 @@ conda create -n behaviour_analysis python==3.10 -y
 ### 3. Install dependancies
 Activate the environment. Use pip install to add the necessary libraries:
 ```bash
-python -m pip install pynwb==2.3.3 open-ephys-python-tools colorama 
+python -m pip install open-ephys-python-tools colorama 
 ```
 ```bash
-conda install matplotlib numpy seaborn scipy opencv
+conda install matplotlib numpy seaborn scipy opencv h5py
 ```
+Then run `pip install pynwb==2.3.3`. This ensure the h5py that it uses works properly maybe?
 
 ---
 
