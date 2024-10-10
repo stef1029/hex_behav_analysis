@@ -523,7 +523,7 @@ def main_MP():
 
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/test_data")
+    cohort_directory = Path(r"E:\Test_output")
 
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
@@ -550,7 +550,7 @@ def main_MP():
     sessions_to_process = []
     num_sessions = 0
 
-    refresh = False
+    refresh = True
     
     for mouse in directory_info["mice"]:
         for session in directory_info["mice"][mouse]["sessions"]:
