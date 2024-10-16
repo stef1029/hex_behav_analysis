@@ -493,12 +493,14 @@ class Cohort_folder:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
                 processed_data = {}
                 check_list = []
-                processed_data["processed_DAQ_data"] = str(self.find_file(session_folder, 'processed_DAQ_data')); check_list.append(processed_data["processed_DAQ_data"])
+                
                 processed_data["sendkey_logs"] = str(self.find_file(session_folder, 'sendkey_logs')); check_list.append(processed_data["sendkey_logs"])
                 processed_data["video_frametimes"] = str(self.find_file(session_folder, 'video_frame_times')); check_list.append(processed_data["video_frametimes"])
                 processed_data["sendkey_metadata"] = str(self.find_file(session_folder, 'behaviour_data')); check_list.append(processed_data["sendkey_metadata"])
                 processed_data["NWB_file"] = str(self.find_file(session_folder, '.nwb')); #check_list.append(processed_data["NWB_file"])
                 processed_data["DLC"] = self.find_DLC_files(session_folder);
+                if self.OEAB_legacy:
+                    processed_data["processed_DAQ_data"] = str(self.find_file(session_folder, 'processed_DAQ_data')); check_list.append(processed_data["processed_DAQ_data"])
                 if "None" not in check_list:
                     processed_data["preliminary_analysis_done?"] = True
                 else:
