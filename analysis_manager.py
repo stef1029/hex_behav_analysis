@@ -51,6 +51,7 @@ class Process_Raw_Behaviour_Data:
         ArduinoDAQ.json,
         OEAB folder,
         """
+
         start_time = time.perf_counter()
 
         self.data_folder_path = Path(self.session.get("directory"))
@@ -58,7 +59,7 @@ class Process_Raw_Behaviour_Data:
         self.raw_video_Path = Path(self.session.get("raw_data")["raw_video"])
         self.behaviour_data_Path = Path(self.session.get("raw_data")["behaviour_data"])
         self.tracker_data_Path = Path(self.session.get("raw_data")["tracker_data"])
-        self.arduino_DAQ_Path = Path(self.session.get("raw_data")["arduino_DAQ"])
+        self.arduino_DAQ_Path = Path(self.session.get("raw_data")["arduino_DAQ_json"])
         self.OEAB_folder = Path(self.session.get("raw_data")["OEAB"])
 
         print("Files found, processing...")
@@ -68,12 +69,16 @@ class Process_Raw_Behaviour_Data:
             self.rig_id = int(self.sendkey_logs.rig_id)
         except:
             self.rig_id = 1
+
+        self.video_fps = self.sendkey_logs.video_fps
         
         session_metadata = {"rig_id": self.rig_id, 
                             "mouse_weight": self.sendkey_logs.mouse_weight, 
                             "behaviour_phase": self.sendkey_logs.behaviour_phase,
                             "cue_duration": self.sendkey_logs.cue_duration,
-                            "wait_duration": self.sendkey_logs.wait_duration,}
+                            "wait_duration": self.sendkey_logs.wait_duration,
+                            "video_fps": self.video_fps
+                            }
 
         self.OEAB_data = process_ADC_Recordings(self.OEAB_folder, self.rig_id)
 
@@ -185,7 +190,13 @@ class Process_Raw_Behaviour_Data:
         cap = cv.VideoCapture(str(self.raw_video_Path))
         self.true_video_framecount = cap.get(cv.CAP_PROP_FRAME_COUNT)
         cap.release()
-        fps = 30
+        if self.video_fps != None:
+            fps = self.video_fps
+            print(f"fps set to {fps}")
+
+        else:
+            fps = 30
+            print("fps set to 30")
         
         frame_ID_check = False
         # check if frame_IDs is a key:
@@ -235,8 +246,10 @@ class Process_Raw_Behaviour_Data:
         print(f"Video length: {round(self.true_video_framecount / fps) // 60} minutes, {round(self.true_video_framecount / fps) % 60} seconds")
         #print percentage dropped frames:
         dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
-        if dropped_frames >= 30:
-            raise Exception(f"Error: Too many dropped frames detected ({dropped_frames}%). Processing aborted.")
+        # print details about dropped frames:
+        print(f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
+        if dropped_frames >= 40:
+            raise Exception(f"Error: Too many dropped frames detected ({round(dropped_frames, 1)}%). Processing aborted.")
 
         print(f"Percentage dropped frames: {dropped_frames}%")
 
@@ -533,7 +546,7 @@ def main_MP():
 
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Data")
+    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/2409_September_cohort/Data")
 
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
@@ -553,94 +566,34 @@ def main_MP():
     logger.addHandler(console_handler)
     # --------------------------
 
-    Cohort = Cohort_folder(cohort_directory, multi = True)
+    Cohort = Cohort_folder(cohort_directory, multi = True, plot=False)
 
     directory_info = Cohort.cohort
 
     sessions_to_process = []
+    num_sessions = 0
 
-    # refresh = False
+    refresh = False
     
-    # for mouse in directory_info["mice"]:
-    #     for session in directory_info["mice"][mouse]["sessions"]:
-    #         # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-    #         if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-    #             if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-    #                 sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
+    for mouse in directory_info["mice"]:
+        for session in directory_info["mice"][mouse]["sessions"]:
+            num_sessions += 1
+            # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+            if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
+                if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
+                    date = session[:6]
+                    if int(date) >= 241001:
+                        sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
 
-    # print(f"Processing {len(sessions_to_process)} sessions...")
+    print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
-
-    # timestamp_errors = [
-    # "240724_181307_wtjx261-2b",
-    # "240724_181307_wtjx262-2a",
-    # "240723_161002_wtjx262-2a", ###
-    # "240724_144038_wtjx307-6a",
-    # "240724_195643_wtjp254-4b",
-    # "240724_115623_wtjx300-6a",
-    # "240724_115623_wtjx300-6b",
-    # "240724_162127_wtjx261-2a",
-    # "240726_141523_wtjx261-2a",
-    # "240718_144707_wtjx261-2a",
-    # "240719_153837_wtjx261-2a",
-    # "240726_141523_wtjx307-6b", ###
-    # "240718_144701_wtjx307-6b",
-    # "240719_153837_wtjx307-6b"]
-
-    timestamp_errors = [
-    "240723_161002_wtjx262-2a",
-    "240726_141523_wtjx307-6b"]
-
-    sessions_to_process = timestamp_errors
-    # print(Cohort.get_session(sessions_to_process))
-    
-    sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
-    # print(sessions_to_process)
+    # # sessions_to_process = ['240909_140114_mtao89-1d']
+    # sessions_to_process = ['240909_162750_mtao93-1b']
+    # sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
 
     for session in sessions_to_process:
-        # print(session)
         print(f"Processing {session.get('directory')}...")
-        Process_Raw_Behaviour_Data(session, logger = logger)
-
-
-
-
-    # # Prepare a list of tuples, each containing a session and the logger
-    # sessions_with_logger = [(session, logger) for session in sessions_to_process]
-
-    # # Creating a pool of 8 processes
-    # pool = mp.Pool(processes=8)
-
-    # # Use starmap to pass multiple arguments to the Process_Raw_Behaviour_Data function
-    # pool.starmap(Process_Raw_Behaviour_Data, sessions_with_logger)
-
-    # directory_info = Cohort_folder(cohort_directory, multi = True).cohort
-
-    # Directory 2:
-    # cohort_directory = Path(r"/cephfs/srogers/Dan_April_Training_Cephfs")
-
-    # Cohort = Cohort_folder(cohort_directory, multi = True)
-
-    # directory_info = Cohort.cohort
-
-    # sessions_to_process = []
-
-    # refresh = False
-    
-    # for mouse in directory_info["mice"]:
-    #     for session in directory_info["mice"][mouse]["sessions"]:
-    #         # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-    #         if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-    #             if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-
-    #                 # sessions_to_process.append(session_directory)
-    #                 sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
-
-    # print(f"Processing {len(sessions_to_process)} sessions...")
-
-    # for session in sessions_to_process:
-    #     print(f"Processing {session.get('directory')}...")
-    #     Process_Raw_Behaviour_Data(session)
+        Process_Raw_Behaviour_Data(session, logger)
 
     directory_info = Cohort_folder(cohort_directory, multi = True, plot=True).cohort
 
