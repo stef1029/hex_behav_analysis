@@ -243,14 +243,33 @@ class Process_Raw_Behaviour_Data:
             json.dump(self.frame_times, f, indent = 4)
 
     def get_scales_data(self):
-            """
-            Retrieves scales data from the sendkey logs and assigns it to the scales_data attribute.
+        """
+        Retrieves scales data from the sendkey logs and assigns it to the scales_data attribute.
 
-            Returns:
-                None
-            """
-            scales_logs = self.sendkey_logs.scales_data
+        Returns:
+            None
+        """
+        scales_logs = self.sendkey_logs.scales_data
 
+        # Load scales channel data from the HDF5 file
+        with h5py.File(self.arduino_DAQ_Path, 'r') as h5f:
+            scales_channel_data = np.array(h5f['channel_data']['SCALES'])
+            scales_timestamps = np.array(h5f['timestamps'])
+
+        # Determine the type of scales based on the logs
+        scales_type = 'wired' if len(scales_logs[0]) == 3 else 'wireless'
+
+        # Initialize the scales_data dictionary with consistent keys
+        self.scales_data = {
+            "timestamps": None,
+            "weights": None,
+            "pulse_IDs": None,
+            "sendkey_timestamps": None,
+            "mouse_weight_threshold": None,
+            "scales_type": scales_type
+        }
+
+        if scales_type == 'wireless':
             length_timestamps = len(self.timestamps)
             length_scales = len(scales_logs)
 
@@ -262,18 +281,59 @@ class Process_Raw_Behaviour_Data:
                 except IndexError:
                     new_scales_timestamps.append(self.timestamps[-1])
 
-            # if length of timestamps is longer than number of weight readings, cut off last timestamps to make equal length:
+            # If length of timestamps is longer than number of weight readings, cut off last timestamps to make equal length
             if len(new_scales_timestamps) > len(scales_logs):
                 new_scales_timestamps = new_scales_timestamps[:len(scales_logs)]
 
-            self.scales_data = {}
             self.scales_data["timestamps"] = new_scales_timestamps
             self.scales_data["weights"] = [value_pair[1] for value_pair in scales_logs]
-            self.scales_data["sendkey timestamps"] = [value_pair[0] for value_pair in scales_logs]
-
+            self.scales_data["sendkey_timestamps"] = [value_pair[0] for value_pair in scales_logs]
             self.scales_data["mouse_weight_threshold"] = self.sendkey_logs.mouse_weight
 
             print("**Warning: Scales data not accurately timestamped.**")
+
+        elif scales_type == 'wired':
+            # Detect pulse transitions in the scales channel data
+            low_to_high_transitions = np.where((scales_channel_data[:-1] == 0) & (scales_channel_data[1:] == 1))[0]
+
+            # Get the timestamps for each pulse
+            scales_pulses = scales_timestamps[low_to_high_transitions + 1]  # Adding 1 for the high (1) point
+
+            # Extract pulse IDs and weights from scales logs
+            pulse_IDs = [value_pair[2] for value_pair in scales_logs]
+            weights = [value_pair[1] for value_pair in scales_logs]
+
+
+            print(f"Num pulses: {len(scales_pulses)}")
+            # Match pulse IDs to pulse timestamps
+            scales_data_dict = {}
+            for pulse_ID, weight in zip(pulse_IDs, weights):
+                if pulse_ID < len(scales_pulses):
+                    scales_data_dict[pulse_ID] = {
+                        "timestamp": scales_pulses[pulse_ID],
+                        "weight": weight
+                    }
+                else:
+                    print(f"**Warning: Pulse ID {pulse_ID} exceeds recorded scales pulses. Skipping.**")
+
+            # Prepare the scales_data dictionary
+            timestamps = []
+            weights = []
+            pulse_ids = []
+            for pulse_ID, data in scales_data_dict.items():
+                timestamps.append(data["timestamp"])
+                weights.append(data["weight"])
+                pulse_ids.append(pulse_ID)
+
+            self.scales_data["timestamps"] = timestamps if timestamps else None
+            self.scales_data["weights"] = weights if weights else None
+            self.scales_data["pulse_IDs"] = pulse_ids if pulse_ids else None
+            self.scales_data["mouse_weight_threshold"] = self.sendkey_logs.mouse_weight
+
+            print(f"Processed {len(pulse_ids)} scales readings with accurate timestamps.")
+
+        # Final output structure for both scales types
+        print(f"Scales data processed. Type: {self.scales_data['scales_type']}.")
 
 
     def count_files(self, directory):
