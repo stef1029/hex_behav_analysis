@@ -72,8 +72,8 @@ def main():
     # process_and_rsync_files(source_directory, destination_directory, cohort)
 
     # # Set your source and destination directories here
-    source_directory = Path(r'/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ')
-    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/September_portable_AD')
+    source_directory = Path(r'/cephfs2/dwelch/Behaviour/November_cohort')
+    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/Dan_december_cohort')
 
     # Initialize cohort
     cohort = create_cohort_folder(source_directory)

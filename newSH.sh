@@ -24,7 +24,8 @@ module load cuda/10.1
 
 conda activate DEEPLABCUT
 
-cd "/cephfs2/srogers/New_analysis_pipeline/Scripts"
+# cd "/cephfs2/srogers/New_analysis_pipeline/Scripts"
+cd "/lmb/home/dwelch/dev/projects/July_cohort_scripts"
 
 # Ensure your Python script can take a video path and a GPU ID as arguments
 python batch_analyse.py "$VIDEO_PATH" "$GPU_ID"
