@@ -62,18 +62,18 @@ def main():
     # destination_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Portable_data')
 
     # Set your source and destination directories here
-    source_directory = Path(r'/cephfs2/srogers/March_training')
-    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/March_training_portable')
+    # source_directory = Path(r'/cephfs2/srogers/March_training')
+    # destination_directory = Path(r'/cephfs2/srogers/Behaviour code/March_training_portable')
     
-    # Initialize cohort
-    cohort = create_cohort_folder(source_directory)
+    # # Initialize cohort
+    # cohort = create_cohort_folder(source_directory)
 
-    # Execute the processing and rsync process
-    process_and_rsync_files(source_directory, destination_directory, cohort)
+    # # Execute the processing and rsync process
+    # process_and_rsync_files(source_directory, destination_directory, cohort)
 
     # # Set your source and destination directories here
-    source_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Data')
-    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/2407_July_WT_cohort/Portable_data')
+    source_directory = Path(r'/cephfs2/dwelch/Behaviour/November_cohort')
+    destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/Dan_december_cohort')
 
     # Initialize cohort
     cohort = create_cohort_folder(source_directory)
