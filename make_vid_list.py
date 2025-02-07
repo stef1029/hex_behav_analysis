@@ -16,7 +16,7 @@ def get_video_paths(cohort_info, mode):
     return videos
 
 def main(cohort_directory, mode):
-    cohort_info = Cohort_folder(cohort_directory, multi=True).cohort
+    cohort_info = Cohort_folder(cohort_directory, multi=True, OEAB_legacy = False).cohort
     # Get the video paths
     videos = get_video_paths(cohort_info, mode)
     print(f"Number of videos to {mode}: {len(videos)}")

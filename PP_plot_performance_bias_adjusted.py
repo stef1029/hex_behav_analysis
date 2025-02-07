@@ -4,6 +4,7 @@ from pathlib import Path
 from Cohort_folder import Cohort_folder
 import json
 import numpy as np
+from datetime import datetime
 
 
 def plot_performance_by_angle(sessions, 
@@ -14,7 +15,8 @@ def plot_performance_by_angle(sessions,
                               cue_mode='both',
                               error_bars='SEM',
                               plot_individual_mice=False,
-                              plot_bias=False):
+                              plot_bias=False,
+                              output_path=None):
     """
     This function takes a list of sessions and plots the performance by angle of all trials in the sessions given.
     
@@ -175,7 +177,7 @@ def plot_performance_by_angle(sessions,
                 ax.plot(angles_rad, mouse_biased_performance_data, marker='o', label=f'Mouse {mouse} (Performance)')
 
         # Add a legend to differentiate between mice
-        ax.legend(loc='upper right')
+        # ax.legend(loc='upper right')
     
     else:
         # Plot the average bias or bias-adjusted performance
@@ -224,5 +226,36 @@ def plot_performance_by_angle(sessions,
     # Add title
     ax.set_title(title, va='bottom', fontsize=16)
 
+    # ------ save figures ------    
+
+    if output_path is not None:
+        # Create directory if it doesn't exist (but don't concatenate path multiple times)
+        if not output_path.exists():
+            output_path.mkdir(parents=True, exist_ok=True)
+
+        # Define the base filename with date and time
+        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        base_filename = f"{date_time}_angular_performance_radial"
+        output_filename_svg = f"{base_filename}.svg"
+        output_filename_png = f"{base_filename}.png"
+
+        # Check for existing SVG and PNG files and modify filenames if necessary
+        counter = 0
+        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+            output_filename_svg = f"{base_filename}_{counter}.svg"
+            output_filename_png = f"{base_filename}_{counter}.png"
+            counter += 1
+
+        # Save the plot as SVG in the desired folder
+        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+        # Save the plot as PNG in the desired folder
+        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+
+    # --------------------------------------------
+    
     # Display the plot
     plt.show()

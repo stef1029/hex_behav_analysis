@@ -235,32 +235,48 @@ class Session:
             return None
 
         
-    def draw_LEDs(self, start = 0, end = None):
-        
+    def draw_LEDs(self, start=0, end=None, output_path=None):
         if self.rig_id == 1:
-            port_angles = [64, 124, 184, 244, 304, 364] # calibrated 14/2/24 with function at end of session class
+            port_angles = [64, 124, 184, 244, 304, 364]  # calibrated 14/2/24 with function at end of session class
         elif self.rig_id == 2:
             port_angles = [240, 300, 360, 420, 480, 540]
         else:
             raise ValueError(f"Invalid rig ID: {self.rig_id}")
-    
-        # take list of trials, and iterate through making a frametext dict for the video.
+
+        # Prepare frame text for each trial
         frame_text = {}
         for i, trial in enumerate(self.trials):
             for frame in trial["video_frames"]:
-                frame_text[frame] = {}
-                frame_text[frame]["text"] = f"trial {i+1}, cue: {trial['correct_port']}"
-                frame_text[frame]["cue"] = trial['correct_port']
+                frame_text[frame] = {
+                    "text": f"trial {i + 1}, cue: {trial['correct_port']}",
+                    "cue": trial['correct_port']
+                }
 
-        output_filename = "/cephfs2/srogers/test_output/LEDs.mp4"
+        output_folder = Path(output_path) / "drawn_videos" if output_path is not None else Path(r"V:\test_output")
+        filename = f"{self.session_ID}_LEDs.mp4"
+        output_filename = output_folder / filename
+
+        # Ensure the output directory exists
+        output_folder.mkdir(parents=True, exist_ok=True)
+
         cap = cv.VideoCapture(str(self.session_video))
+        if not cap.isOpened():
+            print(f"Error: Could not open video file {self.session_video}")
+            return
+
         fps = cap.get(cv.CAP_PROP_FPS)
         frame_width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
         fourcc = cv.VideoWriter_fourcc(*'mp4v')
-        out = cv.VideoWriter(output_filename, fourcc, fps, (frame_width, frame_height))
+        total_frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+        print(f"FPS: {fps}, Width: {frame_width}, Height: {frame_height}, frame count: {total_frame_count}")
+        out = cv.VideoWriter(str(output_filename), fourcc, fps, (frame_width, frame_height))
 
-        centre = (int(frame_width/2), int(frame_height/2))
+        if not out.isOpened():
+            print("Error: VideoWriter failed to open.")
+            return
+        
+        centre = (int(frame_width / 2), int(frame_height / 2))
         cue_position = (frame_height / 2) - 25
 
         frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
@@ -270,27 +286,51 @@ class Session:
             end = frame_count
         end = end if end < frame_count else frame_count
 
-        for i in range(start, end):
-            cap.set(cv.CAP_PROP_POS_FRAMES, i)
+        # Progress tracking
+        self.UP = "\033[1A"
+        self.CLEAR = '\x1b[2K'
+
+        frame_index = 0
+        while frame_index < end:
             ret, frame = cap.read()
-            if ret:
-                if i in frame_text:
-                    frame = cv.putText(frame, frame_text[i]["text"], (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
-                    port = frame_text[i]["cue"]
+            if not ret:
+                print("Error: Failed to read frame from video.")
+                break
+
+            if frame_index >= start:
+                # Update progress every 100 frames or so
+                if frame_index % 100 == 0:
+                    print(f"Processing frame {frame_index}/{end}", end=self.CLEAR + self.UP)
+
+                # Check if current frame should have annotations
+                if frame_index in frame_text:
+                    frame = cv.putText(
+                        frame, frame_text[frame_index]["text"], (50, 50), cv.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 255, 0), 2, cv.LINE_AA
+                    )
+                    port = frame_text[frame_index]["cue"]
                     try:
-                        port = int(port)-1
+                        port = int(port) - 1
                         port_angle = port_angles[port]
                         x2 = int(centre[0] + cue_position * math.cos(math.radians(port_angle)))
                         y2 = int(centre[1] - cue_position * math.sin(math.radians(port_angle)))
-                        # draw a * at the cue position
-                        frame = cv.drawMarker(frame, (x2, y2), (0, 255, 0), markerType=cv.MARKER_STAR, markerSize=30, thickness=2, line_type=cv.LINE_AA)
+                        # Draw a marker at the cue position
+                        frame = cv.drawMarker(
+                            frame, (x2, y2), (0, 255, 0), markerType=cv.MARKER_STAR,
+                            markerSize=30, thickness=2, line_type=cv.LINE_AA
+                        )
                     except ValueError:
                         frame = cv.putText(frame, "audio", (50, 100), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
+                # Write the processed frame to the output
                 out.write(frame)
-        
+
+            frame_index += 1
+
+        # Release resources
         cap.release()
         out.release()
+        print(f"Processing complete. Video saved to {output_filename}")
 
 
     def load_data(self):
@@ -624,6 +664,10 @@ class DetectTrials:
 
         if phase == '10':
             trial_list = self.merge_trials(trial_list)
+        
+        trial_list.sort(key=lambda trial: trial["cue_start"])
+        for i, trial in enumerate(trial_list):
+            trial['trial_no'] = i
 
         return trial_list
     
