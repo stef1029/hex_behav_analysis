@@ -20,7 +20,7 @@ VIDEO_PATH=$(sed -n "${VIDEO_INDEX}p" $VIDEO_LIST)
 echo "Processing video: $VIDEO_PATH on GPU: $GPU_ID"
 
 nvidia-smi -L
-module load cuda/10.1
+module load cuda/11.2
 
 conda activate DEEPLABCUT
 
