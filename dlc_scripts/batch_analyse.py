@@ -1,21 +1,17 @@
-import deeplabcut
-import os
+from deeplabcut import analyze_videos
 import time
-from Cohort_folder import Cohort_folder
-from pathlib import Path
-import multiprocessing as mp
 import sys
 
 
 
-config = r'/cephfs2/srogers/New_analysis_pipeline/training_videos/DLC_Project_231212_193535_wtjx285-2a_raw_MP-SRC-2024-01-09/config.yaml'
-
+# config = r'/cephfs2/srogers/New_analysis_pipeline/training_videos/DLC_Project_231212_193535_wtjx285-2a_raw_MP-SRC-2024-01-09/config.yaml'
+config = r'/cephfs2/dwelch/6-choice_behaviour_DLC_model/config.yaml'
 
 def analyse(video_path, gpu_id):
     start_time = time.perf_counter()
     print(f"Analyzing {str(video_path)}")
     print(f"Using GPU {gpu_id}")
-    deeplabcut.analyze_videos(config = config,
+    analyze_videos(config = config,
                           videos = [video_path], 
                           videotype='.avi', 
                           save_as_csv=True, 

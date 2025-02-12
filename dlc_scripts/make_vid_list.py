@@ -44,4 +44,8 @@ if __name__ == "__main__":
         print("Invalid mode. Use 'analyse' or 'label'.")
         sys.exit(1)
 
+    """
+    Example usage: `python make_vid_list.py /path/to/cohort analyse`
+    """
+
     main(cohort_directory, mode)
