@@ -1,9 +1,10 @@
 from pathlib import Path
 import subprocess
-from Cohort_folder import Cohort_folder
-from Session_nwb import Session
 from pynwb import NWBHDF5IO
 from colorama import init, Fore, Style
+
+from utils.Cohort_folder import Cohort_folder
+from utils.Session_nwb import Session
 
 # Initialize colorama
 init(autoreset=True)

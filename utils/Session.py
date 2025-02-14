@@ -3,9 +3,10 @@ import json
 import pandas as pd
 import bisect
 import cv2 as cv
-from DAQ_plot import DAQ_plot
 import math
 import numpy as np
+
+from utils.DAQ_plot import DAQ_plot
 
 class Session:
     def __init__(self, session_dict):

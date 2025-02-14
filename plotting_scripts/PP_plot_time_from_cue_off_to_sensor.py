@@ -1,12 +1,11 @@
 from matplotlib import pyplot as plt
-from Session_nwb import Session
 from pathlib import Path
-from Cohort_folder import Cohort_folder
 import json
 import numpy as np
 from matplotlib.patches import Circle
 
-
+from utils.Cohort_folder import Cohort_folder
+from utils.Session_nwb import Session
 
 
 def plot_performance_by_angle(sessions, 

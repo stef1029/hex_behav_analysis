@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import scipy.signal as sig
 
-from Session import Session
-from Cohort_folder import Cohort_folder
+from utils.Session import Session
+from utils.Cohort_folder import Cohort_folder
 
 def find_file(directory, tag):
     file_found = False

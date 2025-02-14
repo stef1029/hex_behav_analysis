@@ -3,7 +3,6 @@ import json
 import pandas as pd
 import bisect
 import cv2 as cv
-from DAQ_plot import DAQ_plot
 import math
 import numpy as np
 from datetime import datetime
@@ -14,7 +13,8 @@ from pynwb.behavior import SpatialSeries
 from pynwb.file import Subject, LabMetaData
 from pynwb.spec import NWBNamespaceBuilder, NWBGroupSpec, export_spec
 
-from Cohort_folder import Cohort_folder
+from utils.Cohort_folder import Cohort_folder
+from utils.DAQ_plot import DAQ_plot
 
 class Session:
     def __init__(self, session_dict):

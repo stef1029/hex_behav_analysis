@@ -2,9 +2,10 @@ import json
 import matplotlib.pyplot as plt
 import h5py
 import numpy as np
-from Preliminary_analysis_scripts.Full_arduinoDAQ_import import Arduino_DAQ_Import
 import argparse
 import os
+
+from Preliminary_analysis_scripts.Full_arduinoDAQ_import import Arduino_DAQ_Import
 
 class DAQViewer:
     def __init__(self, daq_file_path):

@@ -16,9 +16,9 @@ from Preliminary_analysis_scripts.session_import import Session
 from Preliminary_analysis_scripts.process_ADC_recordings import process_ADC_Recordings
 from Preliminary_analysis_scripts.Arduino_DAQ_import import Arduino_DAQ_Import
 # from Preliminary_analysis_scripts.deeplabcut_setup import DLC_setup
-from DAQ_plot import DAQ_plot
-from Cohort_folder import Cohort_folder
-from DAQ_to_nwb import *
+from utils.DAQ_plot import DAQ_plot
+from utils.Cohort_folder import Cohort_folder
+from utils.DAQ_to_nwb import *
 
 
 

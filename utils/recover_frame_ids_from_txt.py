@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+
 # Function to read numbers from a txt file
 def read_numbers_from_txt(txt_file):
     with open(txt_file, 'r') as file:

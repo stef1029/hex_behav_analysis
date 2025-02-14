@@ -1,4 +1,4 @@
-from Cohort_folder import Cohort_folder
+from utils.Cohort_folder import Cohort_folder
 from pathlib import Path
 
     

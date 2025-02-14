@@ -14,23 +14,17 @@ from pynwb.behavior import SpatialSeries
 from pynwb.file import Subject, LabMetaData
 from pynwb.spec import NWBNamespaceBuilder, NWBGroupSpec, export_spec
 
-# this takes the current cohort behaviour folder and manages the data in it. 
-# my hope is that it will automatically group the individual mouse files into lists, detect if the correct files are there
-# it should also keep track of whether the initial analysis has been done, and if not, give the option to run it.
-# i think this might be where I create the high level mouse class.
-
-
-
+from utils.plot_graphical_cohort_info import graphical_cohort_info
 
 
 class Cohort_folder:
-    def __init__(self, cohort_directory, multi = True, plot = False, portable_data = False, OEAB_legacy = True):        # could have a function that detects if it's multi automatically
+    def __init__(self, cohort_directory, multi=True, portable_data=False, OEAB_legacy=True, ignore_tests=True):
         print('Loading cohort info...')
         self.cohort_directory = Path(cohort_directory)
         self.multi = multi
-        self.plot = plot
         self.portable_data = portable_data
         self.OEAB_legacy = OEAB_legacy
+        self.ignore_tests = ignore_tests
 
         # check if folder exists:
         if not self.cohort_directory.exists():
@@ -40,6 +34,19 @@ class Cohort_folder:
             self.init_raw_data()
         else:
             self.init_portable_data()
+
+    def plot_graphical_cohort_info(self, show=False):
+        graphical_cohort_info(self.cohort, self.cohort_directory, show)
+
+    def is_test_session(self, folder_name):
+        """
+        Check if a session folder represents a test session by examining the mouse ID portion.
+        """
+        # Get the mouse ID portion (everything after the underscore at position 13)
+        if len(folder_name) > 13 and folder_name[13] == "_":
+            mouse_id = folder_name[14:].lower()
+            return 'test' in mouse_id
+        return False
     
     def init_portable_data(self):
         # make initial dictionary and mouse sub dictionaries with prelimiary information.
@@ -52,19 +59,41 @@ class Cohort_folder:
         with open(self.json_filename, 'w') as f:
             json.dump(self.cohort, f, indent = 4, sort_keys=True)
 
-        
-
     def find_nwbs(self):
-        # check if files from preliminary analysis exists for each session:
+        """
+        Finds .nwb files for each session, parses experiment_description to get
+        phase, cue, and wait durations, and stores them in self.cohort.
+        """
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
-                check_list = []
-                nwb_file = str(self.find_file(session_folder, '.nwb'));
 
-                self.cohort["mice"][mouse]["sessions"][session]["NWB_file"] = nwb_file  
+                # 1) Locate the NWB file (non-recursive). If your NWB is in subfolders,
+                #    switch to a recursive glob approach (as shown in earlier examples).
+                nwb_path = self.find_file(session_folder, '.nwb')
+                if nwb_path is not None:
+                    nwb_file = str(nwb_path)
+                    # print(f"Processing NWB: {nwb_file}")
+                else:
+                    nwb_file = "None"
+                    print(f"[WARNING] No NWB file found for session {session_folder}")
+                
+                # 2) Store NWB path in the session dictionary
+                self.cohort["mice"][mouse]["sessions"][session]["NWB_file"] = nwb_file
 
-                self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"] = self.get_session_metadata(nwb_file)['phase']
+                # 3) Retrieve metadata (phase, cue_duration, wait_duration)
+                meta = self.get_session_metadata(nwb_file) if nwb_file != "None" else {}
+                
+                phase = meta.get('phase', None)
+                cue_duration = meta.get('cue_duration', None)
+                wait_duration = meta.get('wait_duration', "0")
+
+                # 4) Store them in the dictionary so the heatmap code can pick them up
+                self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"] = phase
+                self.cohort["mice"][mouse]["sessions"][session]["cue_duration"] = cue_duration
+                self.cohort["mice"][mouse]["sessions"][session]["wait_duration"] = wait_duration
+
+                # print(f"  Phase: {phase}, Cue: {cue_duration}, Wait: {wait_duration}")
 
                 self.cohort["mice"][mouse]["sessions"][session]["portable"] = True
 
@@ -196,59 +225,7 @@ class Cohort_folder:
                         # traceback.print_exc()
                     continue
 
-    def graphical_cohort_info(self, show = False):
-        # Assume self.cohort_concise["complete_data"] is already a suitable dictionary to convert to a DataFrame
-        data = pd.DataFrame(self.cohort_concise["complete_data"])
-        data.reset_index(inplace=True)
-        data.rename(columns={"index": "SessionID"}, inplace=True)
 
-        # Extract and process data
-        data['SessionDate'] = pd.to_datetime(data['SessionID'].str[:6], format='%y%m%d').dt.date
-        data_melted = data.melt(id_vars=["SessionID", "SessionDate"], var_name="Mouse", value_name="Details")
-        data_melted.dropna(subset=["Details"], inplace=True)
-        data_melted["BehaviourPhase"] = data_melted["Details"].apply(lambda x: x.get('Behaviour_phase'))
-        data_melted["TotalTrials"] = data_melted["Details"].apply(lambda x: x.get('total_trials'))
-        data_melted["VideoLength"] = data_melted["Details"].apply(lambda x: x.get('video_length'))
-
-        # Summarize total trials
-        total_trials = data_melted.groupby(['SessionDate', 'Mouse'])['TotalTrials'].sum().unstack()
-
-        # Prepare unique behavior phases list
-        # behavior_phases = data_melted.groupby(['SessionDate', 'Mouse'])['BehaviourPhase'].apply(lambda x: ', '.join(x.unique())).unstack()
-        behavior_phases = data_melted.groupby(['SessionDate', 'Mouse'])['BehaviourPhase'].apply(lambda x: ', '.join(x)).unstack()
-        # Summarize total sessions for annotations
-        total_sessions = data_melted.groupby(['SessionDate', 'Mouse'])['SessionID'].nunique().unstack()
-
-        # Plotting
-        plt.figure(figsize=(18, 8))
-        # Use total_trials for the heatmap values
-        cbar_kws = {"label": "Total Num Trials"}  # Colorbar labeling
-        ax = sns.heatmap(total_trials, cmap="viridis", linewidths=.5, cbar=True, cbar_kws=cbar_kws)
-        ax.set_title(f'Total Trials and Behavior Phases by Mouse and Date (Complete data only)')
-
-        # Annotations for total sessions and behavior phases
-        for y in range(total_trials.shape[0]):
-            for x in range(total_trials.shape[1]):
-                session_count = total_sessions.iloc[y, x] if total_sessions.iloc[y, x] == total_sessions.iloc[y, x] else 0  # Check for NaN
-                behavior_text = behavior_phases.iloc[y, x] if pd.notna(behavior_phases.iloc[y, x]) else ""
-                # Annotate with total sessions count
-                ax.text(x + 0.5, y + 0.5, f'Num Sess: {int(session_count)}', ha='center', va='center', color='black', fontsize='small', fontweight='bold', 
-                                    bbox=dict(facecolor='white', alpha=0.6, edgecolor='none', boxstyle='round,pad=0.1'))
-                # Annotate with behavior phases below the session count
-                ax.text(x + 0.5, y + 0.8, f'Phases: {behavior_text}', ha='center', va='bottom', color='black', fontsize='small', fontweight='bold', wrap=True, 
-                                    bbox=dict(facecolor='white', alpha=0.6, edgecolor='none', boxstyle='round,pad=0.1'))
-        
-        plt.xticks(rotation=45)
-        plt.yticks(rotation=0)
-        plt.tight_layout()
-
-        filename = self.cohort_directory / "cohort_info.png"
-        plt.savefig(filename, dpi=600)  # Adjust the dpi for resolution preferences
-
-        if show:
-            plt.show()
-        # close figure:
-        plt.close()
 
     def text_summary_cohort_info(self):
         # Assume self.cohort_concise["complete_data"] is already a suitable dictionary to convert to a DataFrame
@@ -294,12 +271,13 @@ class Cohort_folder:
             file.write(summary_text)
 
     def find_mice(self):
-
         if not self.multi:
             # List of subdirectories in the test directory, only if index 13 is "_" and does not contain "OEAB_recording"
             self.session_folders = [
                 folder for folder in self.cohort_directory.glob('*')
-                if len(folder.name) > 13 and folder.name[13] == "_" and folder.is_dir() and 'OEAB_recording' not in folder.name
+                if len(folder.name) > 13 and folder.name[13] == "_" 
+                and folder.is_dir() and 'OEAB_recording' not in folder.name
+                and (not self.ignore_tests or not self.is_test_session(folder.name))
             ]
         else:
             self.multi_folders = [
@@ -308,8 +286,11 @@ class Cohort_folder:
             ]
             
             self.session_folders = [
-                subfolder for folder in self.multi_folders for subfolder in folder.glob('*')
-                if subfolder.is_dir() and len(subfolder.name) > 13 and subfolder.name[13] == "_" and 'OEAB_recording' not in subfolder.name
+                subfolder for folder in self.multi_folders 
+                for subfolder in folder.glob('*')
+                if subfolder.is_dir() and len(subfolder.name) > 13 
+                and subfolder.name[13] == "_" and 'OEAB_recording' not in subfolder.name
+                and (not self.ignore_tests or not self.is_test_session(subfolder.name))
             ]
 
         cohort = {"Cohort name": self.cohort_directory.name, "mice": {}}
@@ -327,8 +308,6 @@ class Cohort_folder:
                                                                      "portable": False}
 
         self.cohort = cohort
-
-
 
 
 
@@ -451,37 +430,56 @@ class Cohort_folder:
 
         return OEAB_contents
     
-    def get_session_metadata(self, behaviour_data_file):
+    def get_session_metadata(self, nwb_file):
         """
-        Gets behaviour phase and total trials from behaviour data file.
+        Gets metadata from NWB file, including phase, cue and wait durations
         """
         session_metadata = {}
 
         try:
-            if behaviour_data_file != "None":
-                if Path(behaviour_data_file).suffix == '.json':
-                    with open(behaviour_data_file) as f:
+            if nwb_file != "None":
+                if Path(nwb_file).suffix == '.json':
+                    with open(nwb_file) as f:
                         data = json.load(f)
                     session_metadata["phase"] = data["Behaviour phase"]
                     session_metadata["total_trials"] = data["Total trials"]
-                if Path(behaviour_data_file).suffix == '.nwb':
-                    with NWBHDF5IO(str(behaviour_data_file), 'r') as io:
+                    session_metadata["cue_duration"] = data.get("Cue duration", None)
+                    session_metadata["wait_duration"] = data.get("Wait duration", "0")
+                elif Path(nwb_file).suffix == '.nwb':
+                    with NWBHDF5IO(str(nwb_file), 'r') as io:
                         nwbfile = io.read()
-                        nwb_metadata = nwbfile.experiment_description
-                        phase = nwb_metadata.split(";")[0].split(":")[1]
-                    session_metadata['phase'] = phase
-                    session_metadata["total_trials"] = None
+                        exp_description = nwbfile.experiment_description
+                        
+                        # Parse experiment description string
+                        metadata_parts = {}
+                        for part in exp_description.split(';'):
+                            part = part.strip()    # remove leading/trailing spaces
+                            if not part:
+                                # skip if empty, e.g. trailing semicolon
+                                continue
+                            # Now split by ":", but limit to 1 split in case there's another ":" later
+                            try:
+                                key, val = part.split(':', 1)
+                                key = key.strip()
+                                val = val.strip()
+                                metadata_parts[key] = val
+                            except ValueError:
+                                print(f"[WARNING] Couldn't split '{part}' by ':'. Skipping...")
+                                continue
+                        # print(metadata_parts)
+                        session_metadata['phase'] = metadata_parts.get('phase', '').strip()
+                        session_metadata['cue_duration'] = metadata_parts.get('cue', '').strip()
+                        session_metadata['wait_duration'] = metadata_parts.get('wait', '0').strip()
+                        session_metadata["total_trials"] = None  # Could be added if stored elsewhere in NWB
             else:
                 session_metadata["phase"] = None
                 session_metadata["total_trials"] = None
-        except:
-            # print traceback
+                session_metadata["cue_duration"] = None
+                session_metadata["wait_duration"] = "0"
+        except Exception as e:
+            print(f"Error processing metadata from {nwb_file}: {str(e)}")
             traceback.print_exc()
             return None
-
-
-
-
 
         return session_metadata
 
@@ -569,8 +567,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
