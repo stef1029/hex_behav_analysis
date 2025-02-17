@@ -18,156 +18,198 @@ from utils.plot_graphical_cohort_info import graphical_cohort_info
 
 
 class Cohort_folder:
-    def __init__(self, cohort_directory, multi=True, portable_data=False, OEAB_legacy=True, ignore_tests=True):
-        print('Loading cohort info...')
+    def __init__(
+        self,
+        cohort_directory,
+        multi=True,
+        portable_data=False,
+        OEAB_legacy=True,
+        ignore_tests=True,
+        use_existing_cohort_info=False,
+        plot=False
+    ):
+        """
+        :param cohort_directory: Base directory for your data
+        :param multi: Whether the data is split across subfolders (multiple mice) or not
+        :param portable_data: Whether to use the 'portable_data' logic vs. full raw-data logic
+        :param OEAB_legacy: Whether to look for legacy OEAB folder structures
+        :param ignore_tests: Skip any session folders that look like test sessions
+        :param use_existing_cohort_info: If True and cohort_info.json exists, load from it and skip scanning
+        :param plot: Whether to produce a cohort summary plot (if relevant)
+        """
+        print("Loading cohort info...")
         self.cohort_directory = Path(cohort_directory)
         self.multi = multi
         self.portable_data = portable_data
         self.OEAB_legacy = OEAB_legacy
         self.ignore_tests = ignore_tests
+        self.plot = plot
 
-        # check if folder exists:
         if not self.cohort_directory.exists():
             raise Exception(f"Folder {self.cohort_directory} does not exist")
 
-        if self.portable_data == False:
-            self.init_raw_data()
-        else:
-            self.init_portable_data()
+        self.json_filename = self.cohort_directory / "cohort_info.json"
+        self.concise_json_filename = self.cohort_directory / "concise_cohort_info.json"
+
+        # Try loading existing cohort_info.json if use_existing_cohort_info is True
+        loaded_from_file = False
+        if use_existing_cohort_info and self.json_filename.exists():
+            try:
+                with open(self.json_filename, 'r') as f:
+                    self.cohort = json.load(f)
+                if self.concise_json_filename.exists():
+                    with open(self.concise_json_filename, 'r') as f:
+                        self.cohort_concise = json.load(f)
+                else:
+                    # If concise doesn't exist, create an empty placeholder or skip
+                    self.cohort_concise = {}
+                print("Loaded cohort info from existing JSON files.")
+                loaded_from_file = True
+            except Exception as e:
+                print(f"Failed to load existing cohort info. Reason: {e}")
+                loaded_from_file = False
+
+        # If we did NOT successfully load from file, do the usual scanning/parsing
+        if not loaded_from_file:
+            if self.portable_data:
+                self.init_portable_data()
+            else:
+                self.init_raw_data()
+
+            # If you want the automatic plotting after building from scratch:
+            if self.plot:
+                self.plot_graphical_cohort_info()
+
+        print("Cohort info loaded.\n")
+
 
     def plot_graphical_cohort_info(self, show=False):
         graphical_cohort_info(self.cohort, self.cohort_directory, show)
 
+
     def is_test_session(self, folder_name):
         """
-        Check if a session folder represents a test session by examining the mouse ID portion.
+        Check if a session folder represents a test session by examining
+        the portion of the folder name after the underscore at position 13.
         """
-        # Get the mouse ID portion (everything after the underscore at position 13)
         if len(folder_name) > 13 and folder_name[13] == "_":
             mouse_id = folder_name[14:].lower()
             return 'test' in mouse_id
         return False
-    
+
+
     def init_portable_data(self):
         # make initial dictionary and mouse sub dictionaries with prelimiary information.
         self.find_mice()
 
         # get nwb file location and add to each session dictionary
         self.find_nwbs()
+
         # save as json
-        self.json_filename = self.cohort_directory / "cohort_info.json"
         with open(self.json_filename, 'w') as f:
-            json.dump(self.cohort, f, indent = 4, sort_keys=True)
+            json.dump(self.cohort, f, indent=4, sort_keys=True)
+
 
     def find_nwbs(self):
         """
-        Finds .nwb files for each session, parses experiment_description to get
-        phase, cue, and wait durations, and stores them in self.cohort.
+        Finds .nwb files for each session, parses experiment_description
+        to get phase, cue, and wait durations, and stores in self.cohort.
         """
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
 
-                # 1) Locate the NWB file (non-recursive). If your NWB is in subfolders,
-                #    switch to a recursive glob approach (as shown in earlier examples).
+                # 1) Locate NWB file
                 nwb_path = self.find_file(session_folder, '.nwb')
                 if nwb_path is not None:
                     nwb_file = str(nwb_path)
-                    # print(f"Processing NWB: {nwb_file}")
                 else:
                     nwb_file = "None"
                     print(f"[WARNING] No NWB file found for session {session_folder}")
-                
-                # 2) Store NWB path in the session dictionary
+
+                # 2) Store NWB path
                 self.cohort["mice"][mouse]["sessions"][session]["NWB_file"] = nwb_file
 
                 # 3) Retrieve metadata (phase, cue_duration, wait_duration)
                 meta = self.get_session_metadata(nwb_file) if nwb_file != "None" else {}
-                
+
                 phase = meta.get('phase', None)
                 cue_duration = meta.get('cue_duration', None)
                 wait_duration = meta.get('wait_duration', "0")
 
-                # 4) Store them in the dictionary so the heatmap code can pick them up
+                # 4) Store in dict
                 self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"] = phase
                 self.cohort["mice"][mouse]["sessions"][session]["cue_duration"] = cue_duration
                 self.cohort["mice"][mouse]["sessions"][session]["wait_duration"] = wait_duration
-
-                # print(f"  Phase: {phase}, Cue: {cue_duration}, Wait: {wait_duration}")
-
                 self.cohort["mice"][mouse]["sessions"][session]["portable"] = True
 
+
     def init_raw_data(self):
-
         self.find_mice()
-
         self.check_raw_data()
-
         self.check_for_preliminary_analysis()
 
         # save as json
-        self.json_filename = self.cohort_directory / "cohort_info.json"
         with open(self.json_filename, 'w') as f:
-            json.dump(self.cohort, f, indent = 4, sort_keys=True)
+            json.dump(self.cohort, f, indent=4, sort_keys=True)
 
         # save concise logs as json
         self.make_concise_training_logs()
-        self.concise_json_filename = self.cohort_directory / "concise_cohort_info.json"
         with open(self.concise_json_filename, 'w') as f:
-            json.dump(self.cohort_concise, f, indent = 4, sort_keys=True)
+            json.dump(self.cohort_concise, f, indent=4, sort_keys=True)
 
         if self.plot:
-            self.graphical_cohort_info()
+            self.plot_graphical_cohort_info()
 
         print('Cohort info loaded')
-    
-    def get_session(self, ID, concise = False):
+
+
+    def get_session(self, ID, concise=False):
         """
-        Takes a session ID and returns a dictionary containing the info from cohort info about that session.
+        Takes a session ID and returns a dictionary containing the info
+        from cohort info about that session.
         """
-        # Iterate over each mouse and their sessions to find the matching session ID
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 if session == ID:
-                    # Return the session information if the ID matches
-                    if concise == False:
+                    if not concise:
                         return self.cohort["mice"][mouse]["sessions"][session]
-                    if concise == True:
-                        return self.cohort_concise["complete_data"][mouse][session]
-        # Return None or raise an error if the session ID is not found
-        return None 
+                    else:
+                        return self.cohort_concise["complete_data"].get(mouse, {}).get(session, None)
+        return None
+
 
     def phases(self):
         """
-        Makes a way of seeing the sessions that occured for each phase possible in a cohort.
+        Makes it easy to see the sessions for each known phase in a cohort.
         """
         phases = ["1", "2", "3", "3b", "3c", "4", "4b", "4c", "test", "5", "6", "7", "8", "9", "9b", "9c", "10"]
         phase_dict = {phase: {} for phase in phases}
-        if self.portable_data == False:
-            for mouse in self.cohort_concise["complete_data"]:
+        if not self.portable_data:
+            for mouse in self.cohort_concise.get("complete_data", {}):
                 for session in self.cohort_concise["complete_data"][mouse]:
                     phase = self.cohort_concise["complete_data"][mouse][session]["Behaviour_phase"]
                     session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
-                    phase_dict[phase][session] = {"path": session_path,
-                                                "total_trials": self.cohort_concise["complete_data"][mouse][session]["total_trials"],
-                                                "video_length": self.cohort_concise["complete_data"][mouse][session]["video_length"],
-                                                "mouse": mouse}
+                    phase_dict[phase][session] = {
+                        "path": session_path,
+                        "total_trials": self.cohort_concise["complete_data"][mouse][session]["total_trials"],
+                        "video_length": self.cohort_concise["complete_data"][mouse][session]["video_length"],
+                        "mouse": mouse
+                    }
         else:
             for mouse in self.cohort["mice"]:
                 for session in self.cohort["mice"][mouse]["sessions"]:
                     phase = self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"]
                     session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
-                    phase_dict[phase][session] = {"path": session_path,
-                                                "mouse": mouse}
-                
+                    phase_dict[phase][session] = {"path": session_path, "mouse": mouse}
         return phase_dict
+
 
     def make_concise_training_logs(self):
         """
-        concise form of logs for easy viewing of cohort.
-        Split into complete and incomplete data
-        For each session per mouse, include behaviour phase, total trials and length of video"""
-
+        Creates a concise summary dictionary self.cohort_concise for easy overview.
+        Splits sessions into complete_data / incomplete_data keys.
+        """
         cohort_info = self.cohort
         self.cohort_concise = {}
 
@@ -177,63 +219,66 @@ class Cohort_folder:
                     behaviour_phase = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["session_metadata"]["phase"]
                     total_trials = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["session_metadata"]["total_trials"]
                     video_length = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["video_length"]
+
                     if cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
                         if "complete_data" not in self.cohort_concise:
                             self.cohort_concise["complete_data"] = {}
                         if mouse not in self.cohort_concise["complete_data"]:
                             self.cohort_concise["complete_data"][mouse] = {}
-                        self.cohort_concise["complete_data"][mouse][session] = {}
-                        self.cohort_concise["complete_data"][mouse][session]["Behaviour_phase"] = behaviour_phase
-                        self.cohort_concise["complete_data"][mouse][session]["total_trials"] = total_trials
-                        self.cohort_concise["complete_data"][mouse][session]["video_length"] = video_length
-                        self.cohort_concise["complete_data"][mouse][session]["mouse_id"] = mouse
+                        self.cohort_concise["complete_data"][mouse][session] = {
+                            "Behaviour_phase": behaviour_phase,
+                            "total_trials": total_trials,
+                            "video_length": video_length,
+                            "mouse_id": mouse,
+                        }
                     else:
                         if "incomplete_data" not in self.cohort_concise:
                             self.cohort_concise["incomplete_data"] = {}
                         if mouse not in self.cohort_concise["incomplete_data"]:
                             self.cohort_concise["incomplete_data"][mouse] = {}
-                        self.cohort_concise["incomplete_data"][mouse][session] = {}   
-                        self.cohort_concise["incomplete_data"][mouse][session]["Behaviour_phase"] = behaviour_phase
-                        self.cohort_concise["incomplete_data"][mouse][session]["total_trials"] = total_trials
-                        self.cohort_concise["incomplete_data"][mouse][session]["video_length"] = video_length
-                        self.cohort_concise["incomplete_data"][mouse][session]["mouse_id"] = mouse
+                        self.cohort_concise["incomplete_data"][mouse][session] = {
+                            "Behaviour_phase": behaviour_phase,
+                            "total_trials": total_trials,
+                            "video_length": video_length,
+                            "mouse_id": mouse,
+                        }
                 except:
-
-
-                    ignore = ["240807_163610_wtjp254-4b",   # forgot to turn scales on
-                            "240725_110604_wtjx300-6a",     # no trials
-                            "240720_115745_wtjx300-6a",     # no trials
-                            "240731_120318_wtjx300-6a",
-                            "240720_114019_wtjx300-6a",
-                            "240720_120336_wtjx300-6a",
-                            "240720_120413_wtjx300-6a",
-                            "240725_110604_wtjx300-6b",     # no trials
-                            "240731_120318_wtjx300-6b",
-                            "240720_114019_wtjx300-6b",
-                            "240720_120336_wtjx300-6b",
-                            "240720_120413_wtjx300-6b",
-                            "240719_150822_wtjx261-2a",
-                            "240716_141151_wtjx261-2a",
-                            "240719_150822_wtjx307-6b"]
-                    
-
+                    ignore = [
+                        "240807_163610_wtjp254-4b",  # forgot to turn scales on
+                        "240725_110604_wtjx300-6a",  # no trials
+                        "240720_115745_wtjx300-6a",  # no trials
+                        "240731_120318_wtjx300-6a",
+                        "240720_114019_wtjx300-6a",
+                        "240720_120336_wtjx300-6a",
+                        "240720_120413_wtjx300-6a",
+                        "240725_110604_wtjx300-6b",  # no trials
+                        "240731_120318_wtjx300-6b",
+                        "240720_114019_wtjx300-6b",
+                        "240720_120336_wtjx300-6b",
+                        "240720_120413_wtjx300-6b",
+                        "240719_150822_wtjx261-2a",
+                        "240716_141151_wtjx261-2a",
+                        "240719_150822_wtjx307-6b"
+                    ]
                     if session in ignore:
                         continue
                     else:
                         print(f"Error processing {session}")
-                        # print traceback:
-                        # traceback.print_exc()
                     continue
 
 
-
     def text_summary_cohort_info(self):
-        # Assume self.cohort_concise["complete_data"] is already a suitable dictionary to convert to a DataFrame
+        """
+        Example textual summary. Requires self.cohort_concise["complete_data"] loaded.
+        """
+        if "complete_data" not in self.cohort_concise:
+            print("No complete_data in cohort_concise. Please generate or load it first.")
+            return
+
         data = pd.DataFrame(self.cohort_concise["complete_data"])
         data.reset_index(inplace=True)
         data.rename(columns={"index": "SessionID"}, inplace=True)
 
-        # Extract and process data
         data['SessionDate'] = pd.to_datetime(data['SessionID'].str[:6], format='%y%m%d').dt.date
         data_melted = data.melt(id_vars=["SessionID", "SessionDate"], var_name="Mouse", value_name="Details")
         data_melted.dropna(subset=["Details"], inplace=True)
@@ -241,10 +286,7 @@ class Cohort_folder:
         data_melted["TotalTrials"] = data_melted["Details"].apply(lambda x: x.get('total_trials'))
         data_melted["VideoLength"] = data_melted["Details"].apply(lambda x: x.get('video_length'))
 
-        # Group by session date
         grouped = data_melted.groupby('SessionDate')
-
-        # Print summary
         summary_lines = []
         for session_date, group in grouped:
             mice = group['Mouse'].unique()
@@ -265,18 +307,22 @@ class Cohort_folder:
         summary_text = "\n".join(summary_lines)
         print(summary_text)
 
-        # Optionally, you can save the summary to a text file
         filename = self.cohort_directory / "cohort_summary.txt"
         with open(filename, 'w') as file:
             file.write(summary_text)
 
+
     def find_mice(self):
+        """
+        Populates self.cohort = {...} with a top-level "mice" dict.
+        """
         if not self.multi:
-            # List of subdirectories in the test directory, only if index 13 is "_" and does not contain "OEAB_recording"
             self.session_folders = [
                 folder for folder in self.cohort_directory.glob('*')
-                if len(folder.name) > 13 and folder.name[13] == "_" 
-                and folder.is_dir() and 'OEAB_recording' not in folder.name
+                if len(folder.name) > 13
+                and folder.name[13] == "_"
+                and folder.is_dir()
+                and 'OEAB_recording' not in folder.name
                 and (not self.ignore_tests or not self.is_test_session(folder.name))
             ]
         else:
@@ -284,140 +330,140 @@ class Cohort_folder:
                 folder for folder in self.cohort_directory.glob('*')
                 if folder.is_dir() and 'OEAB_recording' not in folder.name
             ]
-            
             self.session_folders = [
                 subfolder for folder in self.multi_folders 
                 for subfolder in folder.glob('*')
-                if subfolder.is_dir() and len(subfolder.name) > 13 
-                and subfolder.name[13] == "_" and 'OEAB_recording' not in subfolder.name
+                if subfolder.is_dir() 
+                and len(subfolder.name) > 13
+                and subfolder.name[13] == "_"
+                and 'OEAB_recording' not in subfolder.name
                 and (not self.ignore_tests or not self.is_test_session(subfolder.name))
             ]
 
         cohort = {"Cohort name": self.cohort_directory.name, "mice": {}}
         for session_folder in self.session_folders:
-            # get mouse ID:
-            mouse_ID = session_folder.name[14:]
-            # if mouse ID not in mice, add it:
+            mouse_ID = session_folder.name[14:]  # everything after "YYYYMMDD_HHMMSS_"
             if mouse_ID not in cohort["mice"]:
                 cohort["mice"][mouse_ID] = {"sessions": {}}
-            # add session folder to mice:
             session_ID = session_folder.name
-            cohort["mice"][mouse_ID]["sessions"][f"{session_ID}"] = {"directory": (str(session_folder)),
-                                                                     "mouse_id": mouse_ID,
-                                                                     "session_id": session_ID,
-                                                                     "portable": False}
-
+            cohort["mice"][mouse_ID]["sessions"][session_ID] = {
+                "directory": str(session_folder),
+                "mouse_id": mouse_ID,
+                "session_id": session_ID,
+                "portable": False
+            }
         self.cohort = cohort
 
 
-
     def check_raw_data(self):
-        # check if raw data exists for each session:
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
                 raw_data = {}
                 check_list = []
-                raw_data["raw_video"] = str(self.find_file(session_folder, '.avi'));
-                raw_data["behaviour_data"] = str(self.find_file(session_folder, 'behaviour_data')); check_list.append(raw_data["behaviour_data"])
-                raw_data["tracker_data"] = str(self.find_file(session_folder, 'Tracker_data')); check_list.append(raw_data["tracker_data"])
-                if self.OEAB_legacy:
-                    raw_data["arduino_DAQ_json"] = str(self.find_file(session_folder, 'ArduinoDAQ.json')); check_list.append(raw_data["arduino_DAQ_json"])
-                    raw_data["OEAB"] = str(self.find_OEAB_dir(session_folder, mouse)); check_list.append(raw_data["OEAB"])
-                else:
-                    raw_data["arduino_DAQ_h5"] = str(self.find_file(session_folder, 'ArduinoDAQ.h5')); check_list.append(raw_data["arduino_DAQ_h5"])
-                
 
-                bmp_file_check = True if self.find_file(session_folder, 'temp') != None else False
-                video_check = "None" if raw_data["raw_video"] == "None" and bmp_file_check == False else True
+                raw_data["raw_video"] = str(self.find_file(session_folder, '.avi'))
+                raw_data["behaviour_data"] = str(self.find_file(session_folder, 'behaviour_data'))
+                check_list.append(raw_data["behaviour_data"])
+                raw_data["tracker_data"] = str(self.find_file(session_folder, 'Tracker_data'))
+                check_list.append(raw_data["tracker_data"])
+
+                if self.OEAB_legacy:
+                    raw_data["arduino_DAQ_json"] = str(self.find_file(session_folder, 'ArduinoDAQ.json'))
+                    check_list.append(raw_data["arduino_DAQ_json"])
+                    raw_data["OEAB"] = str(self.find_OEAB_dir(session_folder, mouse))
+                    check_list.append(raw_data["OEAB"])
+                else:
+                    raw_data["arduino_DAQ_h5"] = str(self.find_file(session_folder, 'ArduinoDAQ.h5'))
+                    check_list.append(raw_data["arduino_DAQ_h5"])
+
+                # Check for video fallback (temp bmp frames)
+                bmp_file_check = self.find_file(session_folder, 'temp') is not None
+                video_check = "None" if (raw_data["raw_video"] == "None" and not bmp_file_check) else True
                 check_list.append(video_check)
 
-                # load behaviour data:
+                # Load behaviour data to check for scales
                 if raw_data["behaviour_data"] != "None":
                     try:
                         with open(raw_data["behaviour_data"]) as f:
                             data = json.load(f)
-                        if len(data["Scales data"]) > 0:
-                            raw_data["scales_data"] = True; check_list.append(raw_data["scales_data"])
-                        else:
-                            raw_data["scales_data"] = False; check_list.append("None")
+                        raw_data["scales_data"] = len(data["Scales data"]) > 0
+                        check_list.append(raw_data["scales_data"])
                     except:
-                        raw_data["scales_data"] = False; check_list.append("None")
+                        raw_data["scales_data"] = False
+                        check_list.append("None")
                 else:
-                    raw_data["scales_data"] = False; check_list.append("None")
+                    raw_data["scales_data"] = False
+                    check_list.append("None")
 
                 if "None" not in check_list:
                     raw_data["is_all_raw_data_present?"] = True
                 else:
                     raw_data["is_all_raw_data_present?"] = False
-                
-                # make list of missing files:
+
                 missing_files = []
-                missing_files.append("raw_video") if raw_data["raw_video"] == "None" else None
-                missing_files.append("behaviour_data") if raw_data["behaviour_data"] == "None" else None
-                missing_files.append("tracker_data") if raw_data["tracker_data"] == "None" else None
-                
+                if raw_data["raw_video"] == "None":
+                    missing_files.append("raw_video")
+                if raw_data["behaviour_data"] == "None":
+                    missing_files.append("behaviour_data")
+                if raw_data["tracker_data"] == "None":
+                    missing_files.append("tracker_data")
+
                 if self.OEAB_legacy:
-                    missing_files.append("arduino_DAQ_json") if raw_data["arduino_DAQ_json"] == "None" else None
-                    missing_files.append("OEAB") if raw_data["OEAB"] == "None" else None
+                    if raw_data["arduino_DAQ_json"] == "None":
+                        missing_files.append("arduino_DAQ_json")
+                    if raw_data["OEAB"] == "None":
+                        missing_files.append("OEAB")
                 else:
-                    missing_files.append("arduino_DAQ_h5") if raw_data["arduino_DAQ_h5"] == "None" else None
+                    if raw_data["arduino_DAQ_h5"] == "None":
+                        missing_files.append("arduino_DAQ_h5")
 
                 raw_data["missing_files"] = missing_files
 
-                # get OEAB file info:
+                # get OEAB file info
                 if self.OEAB_legacy:
                     OEAB_contents = self.get_OEAB_file_info(raw_data["OEAB"])
                     raw_data["OEAB_contents"] = OEAB_contents
 
-                # get length of video:
+                # video length
                 raw_data["video_length"] = self.get_video_length(raw_data["tracker_data"])
 
-                # get session metadata:
+                # session metadata
                 raw_data["session_metadata"] = self.get_session_metadata(raw_data["behaviour_data"])
 
-                # add raw data to cohort:
                 self.cohort["mice"][mouse]["sessions"][session]["raw_data"] = raw_data
 
-    def get_video_length(self, tracker_data):
 
+    def get_video_length(self, tracker_data):
         if tracker_data != "None":
             with open(tracker_data) as f:
                 try:
                     data = json.load(f)
                     start_str = data["start_time"]
                     end_str = data["end_time"]
-
-                    # Define the format for parsing the timestamps
                     time_format = "%y%m%d_%H%M%S"
-
-                    # Convert the strings into datetime objects
                     start = datetime.strptime(start_str, time_format)
                     end = datetime.strptime(end_str, time_format)
-
-                    # Calculate the difference in minutes
                     duration = (end - start).total_seconds() / 60
-
                     return round(duration)
-                
                 except ValueError:
                     return None
         else:
             return None
-    
+
+
     def get_OEAB_file_info(self, OEAB_file):
         OEAB_contents = {}
-        # count total files, including those in subdirectories:
         if OEAB_file != "None":
             OEAB_nodes = list(Path(OEAB_file).glob('*'))
             OEAB_contents["nodes"] = [str(node) for node in OEAB_nodes]
         else:
             OEAB_nodes = None
             OEAB_contents["nodes"] = None
-        
 
-        if OEAB_nodes != None:
-            if OEAB_nodes[0].name == "Record Node 113" or OEAB_nodes[0].name == "Record Node 101"or OEAB_nodes[0].name == "Record Node 120":
+        if OEAB_nodes is not None and len(OEAB_nodes) > 0:
+            name0 = OEAB_nodes[0].name
+            if name0 in ["Record Node 113", "Record Node 101", "Record Node 120"]:
                 recording_no = 0
                 for file in OEAB_nodes[0].glob('*'):
                     if "ADC1" in file.name:
@@ -429,55 +475,49 @@ class Cohort_folder:
             OEAB_contents["recordings"] = None
 
         return OEAB_contents
-    
-    def get_session_metadata(self, nwb_file):
-        """
-        Gets metadata from NWB file, including phase, cue and wait durations
-        """
-        session_metadata = {}
 
+
+    def get_session_metadata(self, nwb_or_json_file):
+        session_metadata = {}
         try:
-            if nwb_file != "None":
-                if Path(nwb_file).suffix == '.json':
-                    with open(nwb_file) as f:
+            if nwb_or_json_file != "None":
+                suffix = Path(nwb_or_json_file).suffix
+                if suffix == '.json':
+                    with open(nwb_or_json_file) as f:
                         data = json.load(f)
-                    session_metadata["phase"] = data["Behaviour phase"]
-                    session_metadata["total_trials"] = data["Total trials"]
+                    session_metadata["phase"] = data.get("Behaviour phase")
+                    session_metadata["total_trials"] = data.get("Total trials")
                     session_metadata["cue_duration"] = data.get("Cue duration", None)
                     session_metadata["wait_duration"] = data.get("Wait duration", "0")
-                elif Path(nwb_file).suffix == '.nwb':
-                    with NWBHDF5IO(str(nwb_file), 'r') as io:
+                elif suffix == '.nwb':
+                    with NWBHDF5IO(str(nwb_or_json_file), 'r') as io:
                         nwbfile = io.read()
-                        exp_description = nwbfile.experiment_description
-                        
-                        # Parse experiment description string
+                        exp_description = nwbfile.experiment_description or ""
                         metadata_parts = {}
                         for part in exp_description.split(';'):
-                            part = part.strip()    # remove leading/trailing spaces
+                            part = part.strip()
                             if not part:
-                                # skip if empty, e.g. trailing semicolon
                                 continue
-                            # Now split by ":", but limit to 1 split in case there's another ":" later
                             try:
                                 key, val = part.split(':', 1)
                                 key = key.strip()
                                 val = val.strip()
                                 metadata_parts[key] = val
                             except ValueError:
-                                print(f"[WARNING] Couldn't split '{part}' by ':'. Skipping...")
+                                print(f"[WARNING] Couldn't parse '{part}' with ':'. Skipping.")
                                 continue
-                        # print(metadata_parts)
+
                         session_metadata['phase'] = metadata_parts.get('phase', '').strip()
                         session_metadata['cue_duration'] = metadata_parts.get('cue', '').strip()
                         session_metadata['wait_duration'] = metadata_parts.get('wait', '0').strip()
-                        session_metadata["total_trials"] = None  # Could be added if stored elsewhere in NWB
+                        session_metadata["total_trials"] = None
             else:
                 session_metadata["phase"] = None
                 session_metadata["total_trials"] = None
                 session_metadata["cue_duration"] = None
                 session_metadata["wait_duration"] = "0"
         except Exception as e:
-            print(f"Error processing metadata from {nwb_file}: {str(e)}")
+            print(f"Error processing metadata from {nwb_or_json_file}: {str(e)}")
             traceback.print_exc()
             return None
 
@@ -485,20 +525,25 @@ class Cohort_folder:
 
 
     def check_for_preliminary_analysis(self):
-        # check if files from preliminary analysis exists for each session:
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
                 processed_data = {}
                 check_list = []
-                
-                processed_data["sendkey_logs"] = str(self.find_file(session_folder, 'sendkey_logs')); check_list.append(processed_data["sendkey_logs"])
-                processed_data["video_frametimes"] = str(self.find_file(session_folder, 'video_frame_times')); check_list.append(processed_data["video_frametimes"])
-                processed_data["sendkey_metadata"] = str(self.find_file(session_folder, 'behaviour_data')); check_list.append(processed_data["sendkey_metadata"])
-                processed_data["NWB_file"] = str(self.find_file(session_folder, '.nwb')); #check_list.append(processed_data["NWB_file"])
-                processed_data["DLC"] = self.find_DLC_files(session_folder);
+
+                processed_data["sendkey_logs"] = str(self.find_file(session_folder, 'sendkey_logs'))
+                check_list.append(processed_data["sendkey_logs"])
+                processed_data["video_frametimes"] = str(self.find_file(session_folder, 'video_frame_times'))
+                check_list.append(processed_data["video_frametimes"])
+                processed_data["sendkey_metadata"] = str(self.find_file(session_folder, 'behaviour_data'))
+                check_list.append(processed_data["sendkey_metadata"])
+                processed_data["NWB_file"] = str(self.find_file(session_folder, '.nwb'))
+                processed_data["DLC"] = self.find_DLC_files(session_folder)
+
                 if self.OEAB_legacy:
-                    processed_data["processed_DAQ_data"] = str(self.find_file(session_folder, 'processed_DAQ_data')); check_list.append(processed_data["processed_DAQ_data"])
+                    processed_data["processed_DAQ_data"] = str(self.find_file(session_folder, 'processed_DAQ_data'))
+                    check_list.append(processed_data["processed_DAQ_data"])
+
                 if "None" not in check_list:
                     processed_data["preliminary_analysis_done?"] = True
                 else:
@@ -506,40 +551,30 @@ class Cohort_folder:
 
                 self.cohort["mice"][mouse]["sessions"][session]["processed_data"] = processed_data
 
+
     def find_DLC_files(self, session_folder):
         DLC_files = {}
         DLC_files["labeled_video"] = str(self.find_file(session_folder, 'labeled'))
         DLC_files["coords_csv"] = str(self.find_file(session_folder, '800000.csv'))
         return DLC_files
-    
-    # def sort_sessions(self):
-    #     # sort sessions by date:
-    #     for mouse in self.cohort["mice"]:
-    #         # sort sessions by date:
-    #         for session in self.cohort["mice"][mouse]["sessions"]:
-    #             session_ID = session
-    #             session_date = session_ID[:13]
-    #             self.cohort["mice"][mouse]["sessions"][session]["date"] = session_date
 
 
     def find_file(self, directory, tag):
         for file in directory.glob('*'):
-                if tag in file.name:
-                    return file
+            if tag in file.name:
+                return file
         return None
+
 
     def find_OEAB_dir(self, directory, mouse):
         """
-        Finds the OEAB data by looking for the folder that contains 'OEAB_recording'.
-        If not found, falls back to the old method which looks for a folder that 
-        isn't a DLC one and doesn't contain letters in its name.
+        Finds OEAB data by looking for a folder with 'OEAB_recording'.
+        If not found, falls back to older method (folder with no letters).
         """
-        # Try the new method first
         if not self.multi:
             for file in directory.glob('*'):
                 if file.is_dir() and 'OEAB_recording' in file.name:
                     return file
-            # Fallback to the old method if the new one fails
             for file in directory.glob('*'):
                 if file.is_dir() and not re.search('[a-zA-Z]', file.name):
                     return file
@@ -549,20 +584,37 @@ class Cohort_folder:
             for file in parent.glob('*'):
                 if file.is_dir() and 'OEAB_recording' in file.name:
                     return file
-            # Fallback to the old method if the new one fails
             for file in parent.glob('*'):
                 if file.is_dir() and (not re.search('[a-zA-Z]', file.name) or file.name == 'New folder'):
                     return file
             return None
 
-def main():
 
+def main():
+    # Example usage:
     test_dir = Path(r"D:\Behaviour\July_cohort_24\Portable_data")
 
-    cohort = Cohort_folder(test_dir, multi = True, plot = True, portable_data = True)
+    # If you want to rely on scanning:
+    # cohort = Cohort_folder(
+    #     test_dir,
+    #     multi=True,
+    #     portable_data=True,
+    #     use_existing_cohort_info=False,
+    #     plot=True
+    # )
 
-    # cohort.graphical_cohort_info()
-    # print(cohort.get_session("240311_183300"))
+    # If you want to load from existing JSON if present:
+    cohort = Cohort_folder(
+        test_dir,
+        multi=True,
+        portable_data=True,
+        use_existing_cohort_info=True,
+        plot=True
+    )
+
+    # Possibly do some queries on cohort
+    # session_info = cohort.get_session("240311_183300")
+    # print(session_info)
 
 
 if __name__ == "__main__":

@@ -103,7 +103,11 @@ class Session:
 
     def add_angle_data(self):
         for trial in self.trials:
-            trial["turn_data"] = self.find_angles(trial)
+            # Check DLC_data is non-empty and has enough rows for `buffer`
+            if trial["DLC_data"] is not None and len(trial["DLC_data"]) >= 1:
+                trial["turn_data"] = self.find_angles(trial)
+            else:
+                trial["turn_data"] = None
 
 
     def find_angles(self, trial, buffer = 1):
@@ -111,128 +115,160 @@ class Session:
         returns: for each trial, the cue angle from mouse heading
         """
         #  ----------------  GET MOUSE HEADING FROM DLC COORDS: --------------------
-        if trial["DLC_data"] is not None:
-            # to get mouse heading, take the ear coords, find angle between that and the nose coords, and then add 90 degrees to that angle.
-            left_ear_coords = [(trial["DLC_data"]["left_ear"]["x"].iloc[i], trial["DLC_data"]["left_ear"]["y"].iloc[i]) for i in range(buffer)]
-            average_left_ear = (sum(coord[0] for coord in left_ear_coords)/len(left_ear_coords), sum(coord[1] for coord in left_ear_coords)/len(left_ear_coords))
-
-            right_ear_coords = [(trial["DLC_data"]["right_ear"]["x"].iloc[i], trial["DLC_data"]["right_ear"]["y"].iloc[i]) for i in range(buffer)]
-            average_right_ear = (sum(coord[0] for coord in right_ear_coords)/len(right_ear_coords), sum(coord[1] for coord in right_ear_coords)/len(right_ear_coords))
-
-            vector_x = average_right_ear[0] - average_left_ear[0]
-            vector_y = average_right_ear[1] - average_left_ear[1]
-
-            # Calculate the angle relative to the positive x-axis
-            theta_rad = math.atan2(-vector_y, vector_x)
-            theta_deg = math.degrees(theta_rad)
-            theta_deg = (theta_deg + 90) % 360
-
-            # Calculating the midpoint
-            midpoint_x = (average_left_ear[0] + average_right_ear[0]) / 2
-            midpoint_y = (average_left_ear[1] + average_right_ear[1]) / 2
-
-            # Midpoint coordinates
-            midpoint = (midpoint_x, midpoint_y)
-            
-            theta_rad = math.radians(theta_deg)
-            eyes_offset = 40
-            # Calculate the directional offsets using cosine and sine
-            offset_x = eyes_offset * math.cos(theta_rad)  # Offset along x based on heading
-            offset_y = eyes_offset * math.sin(theta_rad)  # Offset along y based on heading
-
-            # New midpoint coordinates after applying the offset
-            new_midpoint_x = midpoint_x + offset_x
-            new_midpoint_y = midpoint_y - offset_y  # Subtract because y-coordinates increase downwards in image coordinates
-
-            # New midpoint
-            midpoint = (new_midpoint_x, new_midpoint_y)
-
-            # -------- GET CUE PRESENTATION ANGLE FROM MOUSE HEADING: ------------------------
-
-            # port_angles = [64, 124, 184, 244, 304, 364] # calibrated 14/2/24 with function at end of session class
-            if self.rig_id == 1:
-                self.port_angles = [64, 124, 184, 244, 304, 364] 
-            elif self.rig_id == 2:
-                self.port_angles = [240, 300, 360, 420, 480, 540]
-            else:
-                raise ValueError(f"Invalid rig ID: {self.rig_id}")
-
-            # if the center is frame height/2, width/2, and the angle is the value in port_angles,
-            # then the port coordinates are
-            frame_height = 1080
-            frame_width = 1280
-            center_x = frame_width / 2
-            center_y = frame_height / 2
-            distance = (frame_height / 2) * 0.9         # offset from center to find coords
-
-            self.port_coordinates = []
-            for angle_deg in self.port_angles:
-                # Convert angle from degrees to radians
-                angle_rad = np.deg2rad(angle_deg)
-                
-                # Calculate coordinates
-                x = int(center_x + distance * np.cos(angle_rad))
-                y = int(center_y - distance * np.sin(angle_rad))  # Subtracting to invert y-axis direction
-                
-                # Append tuple of (x, y) to the list of coordinates
-                self.port_coordinates.append((x, y))
-
-            self.relative_angles = []
-            # Convert mouse heading to radians for calculation
-            mouse_heading_rad = np.deg2rad(theta_deg)
-
-            for port_x, port_y in self.port_coordinates:
-                # Calculate vector from midpoint to the port
-                vector_x = port_x - midpoint[0]
-                vector_y = port_y - midpoint[1]
-
-                # Calculate the angle from the x-axis to this vector
-                port_angle_rad = math.atan2(-vector_y, vector_x)
-
-                # Calculate the relative angle
-                relative_angle_rad = port_angle_rad - mouse_heading_rad
-
-                # Convert relative angle to degrees and make sure it is within [0, 360)
-                relative_angle_deg = math.degrees(relative_angle_rad) % 360
-
-                # Append calculated relative angle to list
-                self.relative_angles.append(relative_angle_deg)
-
-            correct_port = trial["correct_port"]
-            if correct_port == "audio-1":
-                correct_port = 1
-            port = int(correct_port) - 1
-            cue_presentation_angle = self.relative_angles[port] % 360
-
-            port_touched_angle = None
-            if trial['next_sensor'] != {}:
-                port_touched = trial['next_sensor'].get('sensor_touched')
-                
-                if port_touched != None:
-                    port_touched_angle = self.relative_angles[int(port_touched) - 1] % 360
-                    # print(port_touched_angle)
-            if cue_presentation_angle > 180:
-                cue_presentation_angle -= 360
-            elif cue_presentation_angle <= -180:
-                cue_presentation_angle += 360
-
-            if port_touched_angle != None:
-                if port_touched_angle > 180:
-                    port_touched_angle -= 360
-                elif port_touched_angle <= -180:
-                    port_touched_angle += 360
-
-
-            # -------- RETURN DATA: ------------------------
-            angle_data = {"bearing": theta_deg, 
-                        "port_position": self.port_coordinates[port],
-                        "midpoint": midpoint,
-                        "cue_presentation_angle": cue_presentation_angle,
-                        "port_touched_angle": port_touched_angle}
-
-            return angle_data
-        else:
+        # --- Guard against empty or too-short DLC data ---
+        if trial["DLC_data"] is None or len(trial["DLC_data"]) < buffer:
             return None
+        
+        # ---- Gather ear coordinates and likelihoods over 'buffer' frames ----
+        left_ear_coords = [
+            (trial["DLC_data"]["left_ear"]["x"].iloc[i],
+            trial["DLC_data"]["left_ear"]["y"].iloc[i])
+            for i in range(buffer)
+        ]
+        left_ear_likelihoods = [
+            trial["DLC_data"]["left_ear"]["likelihood"].iloc[i]
+            for i in range(buffer)
+        ]
+
+        right_ear_coords = [
+            (trial["DLC_data"]["right_ear"]["x"].iloc[i],
+            trial["DLC_data"]["right_ear"]["y"].iloc[i])
+            for i in range(buffer)
+        ]
+        right_ear_likelihoods = [
+            trial["DLC_data"]["right_ear"]["likelihood"].iloc[i]
+            for i in range(buffer)
+        ]
+
+        # --- Compute average coords and average likelihood for each ear ---
+        average_left_ear = (
+            sum(coord[0] for coord in left_ear_coords) / len(left_ear_coords),
+            sum(coord[1] for coord in left_ear_coords) / len(left_ear_coords),
+        )
+        avg_left_ear_likelihood = sum(left_ear_likelihoods) / len(left_ear_likelihoods)
+
+        average_right_ear = (
+            sum(coord[0] for coord in right_ear_coords) / len(right_ear_coords),
+            sum(coord[1] for coord in right_ear_coords) / len(right_ear_coords),
+        )
+        avg_right_ear_likelihood = sum(right_ear_likelihoods) / len(right_ear_likelihoods)
+
+        vector_x = average_right_ear[0] - average_left_ear[0]
+        vector_y = average_right_ear[1] - average_left_ear[1]
+
+        # Calculate the angle relative to the positive x-axis
+        theta_rad = math.atan2(-vector_y, vector_x)
+        theta_deg = math.degrees(theta_rad)
+        theta_deg = (theta_deg + 90) % 360
+
+        # Calculating the midpoint
+        midpoint_x = (average_left_ear[0] + average_right_ear[0]) / 2
+        midpoint_y = (average_left_ear[1] + average_right_ear[1]) / 2
+
+        # Midpoint coordinates
+        midpoint = (midpoint_x, midpoint_y)
+        
+        theta_rad = math.radians(theta_deg)
+        eyes_offset = 40
+        # Calculate the directional offsets using cosine and sine
+        offset_x = eyes_offset * math.cos(theta_rad)  # Offset along x based on heading
+        offset_y = eyes_offset * math.sin(theta_rad)  # Offset along y based on heading
+
+        # New midpoint coordinates after applying the offset
+        new_midpoint_x = midpoint_x + offset_x
+        new_midpoint_y = midpoint_y - offset_y  # Subtract because y-coordinates increase downwards in image coordinates
+
+        # New midpoint
+        midpoint = (new_midpoint_x, new_midpoint_y)
+
+        # -------- GET CUE PRESENTATION ANGLE FROM MOUSE HEADING: ------------------------
+
+        # port_angles = [64, 124, 184, 244, 304, 364] # calibrated 14/2/24 with function at end of session class
+        if self.rig_id == 1:
+            self.port_angles = [64, 124, 184, 244, 304, 364] 
+        elif self.rig_id == 2:
+            self.port_angles = [240, 300, 360, 420, 480, 540]
+        else:
+            raise ValueError(f"Invalid rig ID: {self.rig_id}")
+
+        # if the center is frame height/2, width/2, and the angle is the value in port_angles,
+        # then the port coordinates are
+        frame_height = 1080
+        frame_width = 1280
+        center_x = frame_width / 2
+        center_y = frame_height / 2
+        distance = (frame_height / 2) * 0.9         # offset from center to find coords
+
+        self.port_coordinates = []
+        for angle_deg in self.port_angles:
+            # Convert angle from degrees to radians
+            angle_rad = np.deg2rad(angle_deg)
+            
+            # Calculate coordinates
+            x = int(center_x + distance * np.cos(angle_rad))
+            y = int(center_y - distance * np.sin(angle_rad))  # Subtracting to invert y-axis direction
+            
+            # Append tuple of (x, y) to the list of coordinates
+            self.port_coordinates.append((x, y))
+
+        self.relative_angles = []
+        # Convert mouse heading to radians for calculation
+        mouse_heading_rad = np.deg2rad(theta_deg)
+
+        for port_x, port_y in self.port_coordinates:
+            # Calculate vector from midpoint to the port
+            vector_x = port_x - midpoint[0]
+            vector_y = port_y - midpoint[1]
+
+            # Calculate the angle from the x-axis to this vector
+            port_angle_rad = math.atan2(-vector_y, vector_x)
+
+            # Calculate the relative angle
+            relative_angle_rad = port_angle_rad - mouse_heading_rad
+
+            # Convert relative angle to degrees and make sure it is within [0, 360)
+            relative_angle_deg = math.degrees(relative_angle_rad) % 360
+
+            # Append calculated relative angle to list
+            self.relative_angles.append(relative_angle_deg)
+
+        correct_port = trial["correct_port"]
+        if correct_port == "audio-1":
+            correct_port = 1
+        port = int(correct_port) - 1
+        cue_presentation_angle = self.relative_angles[port] % 360
+
+        port_touched_angle = None
+        if trial['next_sensor'] != {}:
+            port_touched = trial['next_sensor'].get('sensor_touched')
+            
+            if port_touched != None:
+                port_touched_angle = self.relative_angles[int(port_touched) - 1] % 360
+                # print(port_touched_angle)
+        if cue_presentation_angle > 180:
+            cue_presentation_angle -= 360
+        elif cue_presentation_angle <= -180:
+            cue_presentation_angle += 360
+
+        if port_touched_angle != None:
+            if port_touched_angle > 180:
+                port_touched_angle -= 360
+            elif port_touched_angle <= -180:
+                port_touched_angle += 360
+
+
+        # -------- RETURN DATA: ------------------------
+        angle_data = {
+            "bearing": theta_deg,
+            "midpoint": midpoint,
+            "left_ear_likelihood": avg_left_ear_likelihood,
+            "right_ear_likelihood": avg_right_ear_likelihood,
+            "cue_presentation_angle": cue_presentation_angle,
+            "port_touched_angle": port_touched_angle
+        }
+
+        return angle_data
+
 
         
     def draw_LEDs(self, start=0, end=None, output_path=None):

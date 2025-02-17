@@ -129,8 +129,12 @@ def plot_performance_by_angle(sessions,
 
             for trial in data_sets['mice'][mouse][cue_group]['trials']:
                 # print(trial)
-                if trial["turn_data"] != None:
+                if trial.get("turn_data") != None:
                     angle = trial["turn_data"]["cue_presentation_angle"]
+                    if trial["turn_data"]["left_ear_likelihood"] < 0.6:
+                        continue
+                    if trial["turn_data"]["right_ear_likelihood"] < 0.6:
+                        continue
                     for bin in bins:
                         if angle < bin + bin_size and angle >= bin:
                             if trial["next_sensor"] != {}:
