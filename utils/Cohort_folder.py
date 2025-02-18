@@ -180,25 +180,37 @@ class Cohort_folder:
         """
         Makes it easy to see the sessions for each known phase in a cohort.
         """
-        phases = ["1", "2", "3", "3b", "3c", "4", "4b", "4c", "test", "5", "6", "7", "8", "9", "9b", "9c", "10"]
+        phases = ["1", "2", "3", "3b", "3c", "4", "4b", "4c", "test", 
+                "5", "6", "7", "8", "9", "9b", "9c", "10"]
         phase_dict = {phase: {} for phase in phases}
         if not self.portable_data:
             for mouse in self.cohort_concise.get("complete_data", {}):
                 for session in self.cohort_concise["complete_data"][mouse]:
                     phase = self.cohort_concise["complete_data"][mouse][session]["Behaviour_phase"]
                     session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
-                    phase_dict[phase][session] = {
-                        "path": session_path,
-                        "total_trials": self.cohort_concise["complete_data"][mouse][session]["total_trials"],
-                        "video_length": self.cohort_concise["complete_data"][mouse][session]["video_length"],
-                        "mouse": mouse
-                    }
+                    try:
+                        phase_dict[phase][session] = {
+                            "path": session_path,
+                            "total_trials": self.cohort_concise["complete_data"][mouse][session]["total_trials"],
+                            "video_length": self.cohort_concise["complete_data"][mouse][session]["video_length"],
+                            "mouse": mouse
+                        }
+                    except KeyError:
+                        print(f"KeyError when trying to assign phase '{phase}' for session '{session}'.")
+                        print("Check if 'phase' in your data matches one of:", phases)
+                        raise
         else:
             for mouse in self.cohort["mice"]:
                 for session in self.cohort["mice"][mouse]["sessions"]:
                     phase = self.cohort["mice"][mouse]["sessions"][session]["Behaviour_phase"]
                     session_path = self.cohort["mice"][mouse]["sessions"][session]["directory"]
-                    phase_dict[phase][session] = {"path": session_path, "mouse": mouse}
+                    try:
+                        phase_dict[phase][session] = {"path": session_path, "mouse": mouse}
+                    except KeyError:
+                        print(f"KeyError when trying to assign phase '{phase}' for session '{session}'.")
+                        print("Check if 'phase' in your data matches one of:", phases)
+                        raise
+
         return phase_dict
 
 
