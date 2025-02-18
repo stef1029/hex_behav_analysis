@@ -61,16 +61,15 @@ def count_missed_pulses(signal, timestamps, threshold=0.5, debug=False):
     if total_detected < 2:
         return total_detected, 0
 
-    # intervals is the difference in edge indices, not time.
-    # If you want to consider time, you'd do np.diff(timestamps[edges]) instead.
+    # intervals is the difference in edge indices (i.e. sample index intervals).
+    # If you want time intervals, you'd do np.diff(timestamps[edges]) instead.
     intervals = np.diff(edges)
     typical_interval = np.median(intervals)
 
     missed_pulses = 0
     if debug:
-        print(f"    Detected {total_detected} edges. Intervals between edges:\n"
-            #   f"      {intervals}\n"
-              f"    Median interval = {typical_interval:.2f}")
+        print(f"    Detected {total_detected} edges. Intervals between edges:")
+        print(f"    Median interval = {typical_interval:.2f}")
 
     for i, delta in enumerate(intervals):
         ratio = delta / typical_interval
@@ -79,15 +78,47 @@ def count_missed_pulses(signal, timestamps, threshold=0.5, debug=False):
             missed_here = 0
         
         # Print debug info for intervals that are big enough to suspect missing pulses
-        if debug:
-            if ratio >= 1.5:  # or some other threshold you prefer
-                print(f"      Interval {i}: value={delta}, ratio={ratio:.2f}, "
-                      f" => missed {missed_here} pulses here.")
+        if debug and ratio >= 1.5:  # or some other threshold you prefer
+            print(f"      Interval {i}: value={delta}, ratio={ratio:.2f}, "
+                  f"=> missed {missed_here} pulses here.")
         
         missed_pulses += missed_here
     
     return total_detected, missed_pulses
 
+def check_early_pulses(signal, timestamps, threshold=0.5, min_start_delay=0.027, debug=False):
+    """
+    Check if the first detected pulse (train of pulses) starts too early.
+    By default, we require at least ~27 ms of delay (0.027 seconds) from the
+    beginning of the recording until the first pulse. If the first pulse time
+    is below this threshold, we report a warning.
+
+    :param signal: 1D array-like of signal values (camera TTL).
+    :param timestamps: 1D array-like of timestamps.
+    :param threshold: Rising-edge detection threshold for pulses.
+    :param min_start_delay: Minimal acceptable delay from t=0 to first pulse in seconds.
+    :param debug: If True, prints debug statements.
+    """
+    edges = detect_pulse_edges(signal, timestamps, threshold=threshold)
+    if len(edges) == 0:
+        if debug:
+            print("  No pulses found, skipping early pulse check.")
+        return
+
+    # first pulse index -> time
+    first_pulse_time = timestamps[edges[0]]
+    if debug:
+        print(f"  First pulse at t={first_pulse_time:.4f} s. Checking if < {min_start_delay:.4f} s.")
+
+    # Compare to the threshold
+    if first_pulse_time < min_start_delay:
+        print(f"  {Fore.RED}WARNING: The first pulse occurs too early (t={first_pulse_time*1000:.2f} ms), "
+              f"which is less than the expected {min_start_delay*1000:.2f} ms delay.{Style.RESET_ALL}")
+    else:
+        if debug:
+            print(f"  The first pulse occurs at {first_pulse_time:.4f} s, which is above the minimum "
+                  f"required delay of {min_start_delay:.4f} s.")
+        
 # -------------------------------------------------------------------------
 # 3) Function to iterate over all sessions in the cohort and perform checks
 # -------------------------------------------------------------------------
@@ -96,6 +127,7 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
     For each session in the cohort:
       - Looks up the original HDF5 (arduino_DAQ_h5) to detect pulses in 'camera_channel_name'
       - Estimates dropped pulses
+      - Checks if any pulses start too early in the recording
       - Opens the NWB file to count how many frames are in 'behaviour_video'
       - Prints the results, with colorization for missed pulses.
       - If debug=True, prints detailed info about intervals and ratio-based missed pulses detection.
@@ -132,6 +164,16 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
                     threshold=threshold, 
                     debug=debug
                 )
+                
+                # Check for early pulses
+                check_early_pulses(
+                    camera_signal,
+                    timestamps,
+                    threshold=threshold,
+                    min_start_delay=0.050,  # default 50 ms
+                    debug=debug
+                )
+
                 print(f"  H5 File: {h5_path}")
                 print(f"    Total pulses detected : {detected}")
 
