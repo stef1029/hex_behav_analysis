@@ -15,12 +15,13 @@ I will do linear regression on these lines and then prepare a third plot of the 
 #%%
 
 from matplotlib import pyplot as plt
-from Session import Session
 from pathlib import Path
-from Cohort_folder import Cohort_folder
 import json
 import numpy as np
 import time
+
+from utils.Cohort_folder import Cohort_folder
+from utils.Session import Session
 
 cohort_directory = Path(r"/cephfs2/srogers/March_training")
 

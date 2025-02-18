@@ -1,5 +1,5 @@
-from Session_nwb import Session
-from Cohort_folder import Cohort_folder
+from utils.Session_nwb import Session
+from utils.Cohort_folder import Cohort_folder
 from pathlib import Path
 import traceback
 

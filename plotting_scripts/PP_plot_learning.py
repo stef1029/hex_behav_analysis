@@ -1,10 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from Session import Session
-from Cohort_folder import Cohort_folder
 from pathlib import Path
 
-
+from utils.Cohort_folder import Cohort_folder
+from utils.Session_nwb import Session
 
 def plot_learning(session):
     

@@ -28,4 +28,4 @@ conda activate DEEPLABCUT
 cd "/lmb/home/dwelch/dev/projects/July_cohort_scripts"
 
 # Ensure your Python script can take a video path and a GPU ID as arguments
-python batch_analyse.py "$VIDEO_PATH" "$GPU_ID"
+python dlc_scripts/batch_analyse.py "$VIDEO_PATH" "$GPU_ID"

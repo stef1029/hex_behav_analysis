@@ -1,4 +1,4 @@
-from Session import Session
+from utils.Session import Session
 from matplotlib import pyplot as plt
 import json
 import numpy as np

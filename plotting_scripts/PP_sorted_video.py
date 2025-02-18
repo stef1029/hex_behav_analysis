@@ -1,7 +1,7 @@
 import cv2 as cv
 import json
-from Cohort_folder import Cohort_folder
-from Session import Session
+from utils.Cohort_folder import Cohort_folder
+from utils.Session import Session
 from pathlib import Path
 import numpy as np
 import multiprocessing as mp

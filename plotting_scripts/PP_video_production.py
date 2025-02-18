@@ -1,12 +1,11 @@
-from Session_nwb import Session
-from Cohort_folder import Cohort_folder
 import cv2 as cv
 from pathlib import Path
 import multiprocessing as mp
 # from Scripts.DAQ_plot import DAQ_plot
-import os
-import subprocess
 import numpy as np
+
+from utils.Cohort_folder import Cohort_folder
+from utils.Session_nwb import Session
 
 class Video_maker:
     def __init__(self, session):

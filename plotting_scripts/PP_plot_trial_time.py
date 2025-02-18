@@ -1,9 +1,10 @@
 from matplotlib import pyplot as plt
-from Session import Session
 from pathlib import Path
-from Cohort_folder import Cohort_folder
 import json
 import numpy as np
+
+from utils.Cohort_folder import Cohort_folder
+from utils.Session_nwb import Session
 
 cohort_directory = Path(r"/cephfs2/srogers/240207_Dans_data")
 
