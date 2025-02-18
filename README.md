@@ -74,7 +74,8 @@
         **Note:** Every time that cohort_folder is run, these files are updated. After adding new files, one run of this is required to see those sessions included in this info.
 
 - ### [DeepLabCut](https://github.com/DeepLabCut/DeepLabCut) processing:
-  - Each of the videos in the session folders must also be passed through deeplabcut analysis. To achieve this I have pretrained one model on 5 wild-type with no implants performing the behaviour, which serves as the model used on all other similar videos.
+  - Each of the videos in the session folders must also be passed through deeplabcut analysis. To achieve this I have pretrained one model on 5 wild-type with no implants performing the behaviour, which serves as the model used on all other similar videos.  
+  - Before using the cluster for the first time visit `https://bb8.mrc-lmb.cam.ac.uk/userdash`, login with yuor details, click on slurm link in Additional section and then click 'Go on then' to create an account. If receiving an error like this: `sbatch: error: Batch job submission failed: Invalid account or account/partition combination specified` then you may not have done this already.  
 
   - The rough overview is that we make a list of videos to analyse, and distribute that across multiple gpu's that we have access to:
     - 1: Run **make_vid_list.py**. Requires you to specify the cohort folder within it. This goes over the cohort and determines which session folders are good to analyse and which have already been analysed. It then produces a .txt in the cohort folder containing this list of directories.
@@ -82,7 +83,7 @@
     - 3: Run `NUM_LINES=$(wc -l < videos_to_analyse.txt)`
     - 4: Run `sbatch --array=1-${NUM_LINES}%8 "/cephfs2/srogers/New_analysis_pipeline/Scripts/newSH.sh"`. The %8 in this command specifies the number of gpu's that are to be used.
 
-        This will then run in the terminal and output slurm-out files into the cohort folder. Takes about an hour.
+        This will then run in the terminal and output slurm-out files into the cohort folder. Can take a while.
 
   - Currently, the model is stored at `config = r'/cephfs2/srogers/New_analysis_pipeline/training_videos/DLC_Project_231212_193535_wtjx285-2a_raw_MP-SRC-2024-01-09/config.yaml'`. This is specified in newSH.sh.
 
