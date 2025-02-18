@@ -289,7 +289,7 @@ class Session:
                 }
 
         output_folder = Path(output_path) / "drawn_videos" if output_path is not None else Path(r"V:\test_output")
-        filename = f"{self.session_ID}_LEDs.mp4"
+        filename = f"{self.session_ID}_labelled_LEDs.mp4"
         output_filename = output_folder / filename
 
         # Ensure the output directory exists
