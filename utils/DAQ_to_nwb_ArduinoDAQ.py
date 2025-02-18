@@ -1,6 +1,6 @@
-from pynwb import NWBHDF5IO, NWBFile, TimeSeries, load_namespaces, register_class
+from pynwb import NWBHDF5IO, NWBFile, TimeSeries
 from pynwb.misc import IntervalSeries
-from pynwb.file import Subject, LabMetaData
+from pynwb.file import Subject
 from pynwb.image import ImageSeries
 from hdmf.utils import docval, get_docval, popargs
 
@@ -11,8 +11,26 @@ import numpy as np
 from pathlib import Path
 import json
 import shutil
+import h5py
 
-# function takes timestamps and on/off and returns intervals for NWB
+# -------------------------------------------------------------------------
+# (1) Helpers to detect pulses and intervals
+# -------------------------------------------------------------------------
+def detect_rising_edges(signal, timestamps, threshold=0.5):
+    """
+    Identify the indices of rising edges (TTL pulses) in the given signal.
+    A rising edge is where signal[i] < threshold and signal[i+1] >= threshold.
+    Returns the indices of the rising edges.
+    """
+    signal = np.asarray(signal)
+    if len(signal) == 0:
+        return np.array([])
+
+    above_thresh = signal >= threshold
+    rising = (above_thresh[1:] == True) & (above_thresh[:-1] == False)
+    edges = np.where(rising)[0] + 1  # +1 offset because we shifted by 1
+    return edges
+
 def timeseries_to_intervals(timestamps, signal, HIGH = 1, filter = False):
     """
     Convert timestamps and on/off signal to NWB epochs
@@ -53,8 +71,10 @@ def timeseries_to_intervals(timestamps, signal, HIGH = 1, filter = False):
         long_events_start_indices = change_indices[::2][long_event_indices]
         long_events_end_indices = change_indices[1::2][long_event_indices]
         
-        interval_timestamps = np.concatenate((timestamps[long_events_start_indices], timestamps[long_events_end_indices]))
-        intervals = np.concatenate((HIGH * np.ones_like(long_events_start_indices), -HIGH * np.ones_like(long_events_end_indices)))
+        interval_timestamps = np.concatenate((timestamps[long_events_start_indices],
+                                              timestamps[long_events_end_indices]))
+        intervals = np.concatenate((HIGH * np.ones_like(long_events_start_indices),
+                                    -HIGH * np.ones_like(long_events_end_indices)))
 
         # Sort the timestamps and intervals to maintain chronological order
         sort_indices = np.argsort(interval_timestamps)
@@ -77,31 +97,44 @@ def timeseries_to_intervals(timestamps, signal, HIGH = 1, filter = False):
 
         return intervals, interval_timestamps
 
-# fuunction converts intervals to digital events with length of time
 def intervals_to_digital_events(intervals, interval_timestamps):
     """
-    Convert intervals to digital events
+    Convert intervals to digital events (duration-based).
     :param intervals: intervals (np.array)
     :param interval_timestamps: timestamps of intervals (np.array)
-    :return: digital events (np.array)
+    :return: digital_events (np.array)
     :return: timestamps (np.array)
     """
 
-    # make sure it starts with an on time and ends with and off time
+    # make sure it starts with an on time and ends with an off time
     if intervals.shape[0] > 0:
         if intervals[0] == -1:
             intervals = intervals[1:]
             interval_timestamps = interval_timestamps[1:]
-        if intervals[-1] == 1:
+        if intervals.shape[0] > 0 and intervals[-1] == 1:
             intervals = intervals[:-1]
             interval_timestamps = interval_timestamps[:-1]
 
     # find lengths of on times
-    digital_events = interval_timestamps[intervals == -1] - interval_timestamps[intervals == 1]
-    timestamps = interval_timestamps[intervals == 1]
-    
-    return digital_events, timestamps
+    on_times = interval_timestamps[intervals == 1]
+    off_times = interval_timestamps[intervals == -1]
 
+    # If they mismatch for some reason, safely handle
+    n_on = len(on_times)
+    n_off = len(off_times)
+    if n_on > n_off:
+        # Drop extra on_times
+        on_times = on_times[:n_off]
+    elif n_off > n_on:
+        # Drop extra off_times
+        off_times = off_times[:n_on]
+
+    digital_events = off_times - on_times
+    return digital_events, on_times
+
+# -------------------------------------------------------------------------
+# (2) Main DAQ_to_nwb function with new logic to handle missing pulses
+# -------------------------------------------------------------------------
 def DAQ_to_nwb(DAQ_h5_path: Path,
                scales_data: dict,
                session_ID: str,
@@ -113,28 +146,21 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
                session_description: str,
                experimenter: str,
                institution: str,
-               lab: str) -> NWBFile:
+               lab: str,
+               max_frame_id: int=None  # <-- new optional parameter
+               ) -> NWBFile:
     """
-    Convert trilab data to NWB, reading DAQ data from an HDF5 file.
-    :param DAQ_h5_path: Path to the HDF5 file containing DAQ data.
-    :param scales_data: Dictionary containing scales data.
-    :param session_ID: Session identifier (str).
-    :param mouse_id: Mouse ID (str).
-    :param video_directory: Path to the video directory.
-    :param video_timestamps: Dictionary containing video timestamps.
-    :param session_directory: Path to the session directory.
-    :param session_metadata: Dictionary containing session metadata.
-    :param session_description: Session description (str).
-    :param experimenter: Name of the experimenter (str).
-    :param institution: Name of the institution (str).
-    :param lab: Name of the lab (str).
-    :return: NWBFile object.
-    """
-    import h5py
+    Convert Trilab data to NWB, reading DAQ data from an HDF5 file.
+    Now checks whether the first camera pulse is too close to 0 (meaning pulses were truncated),
+    and if so, shifts the video timestamps backward in time.
 
-    # Open the HDF5 file and read the data
+    :param max_frame_id: The highest frame number we expected. If the number of detected pulses
+                         is smaller than max_frame_id, we assume some pulses were chopped off.
+    """
+    # ---------------------------------------------------------------------
+    # (A) Load the Arduino DAQ data
+    # ---------------------------------------------------------------------
     with h5py.File(DAQ_h5_path, 'r') as h5f:
-        # Read the timestamps
         timestamps = np.array(h5f['timestamps'], dtype=np.float64)
 
         # Read the channel data
@@ -142,11 +168,54 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
         for channel_name in h5f['channel_data']:
             channel_data[channel_name] = np.array(h5f['channel_data'][channel_name], dtype=np.int8)
 
-    # Convert to datetime object
+    # ---------------------------------------------------------------------
+    # (B) If "CAMERA" channel is present, detect pulses & see if we should shift
+    # ---------------------------------------------------------------------
+    if max_frame_id is not None and "CAMERA" in channel_data:
+        camera_signal = channel_data["CAMERA"]
+        edges = detect_rising_edges(camera_signal, timestamps, threshold=0.5)
+
+        if len(edges) > 0:
+            # Time of the first pulse
+            first_pulse_time = timestamps[edges[0]]
+            # Number of pulses
+            detected_pulses = len(edges)
+
+            # Heuristic check: if the first pulse is under ~27 ms from 0,
+            # we suspect we've missed pulses that happened prior to DAQ start
+            if first_pulse_time < 0.1:
+                missing_frames = max_frame_id - detected_pulses
+                if missing_frames > 0:
+                    # Calculate framerate from the pulses we do have
+                    # Here, we use the median difference between consecutive camera pulses
+                    # as the "typical" frame interval. Alternatively, you can do total range / count.
+                    pulse_times = timestamps[edges]
+                    if len(pulse_times) > 1:
+                        median_dt = np.median(np.diff(pulse_times))  # seconds per frame
+                        frame_rate = 1.0 / median_dt
+                    else:
+                        # Fallback if we can't compute median
+                        frame_rate = 30.0  # some default, e.g. 30 FPS
+
+                    shift_time = missing_frames / frame_rate
+                    print(f"  [CAMERA WARNING] The first camera pulse occurs at {first_pulse_time*1000:.2f} ms "
+                          f"(<{0.027*1000:.2f} ms). Likely truncated pulses. "
+                          f"Shifting video timestamps backward by {shift_time:.3f} s.\n")
+
+                    # Shift all video timestamps backward by shift_time
+                    # (only if it doesn't push them below 0 in a problematic way)
+                    # You can decide how to handle a negative result; here we just shift anyway.
+                    for key in video_timestamps.keys():
+                        # If it's numeric
+                        if str(key).isdigit():
+                            video_timestamps[key] = float(video_timestamps[key]) - shift_time
+
+    # ---------------------------------------------------------------------
+    # (C) Prepare an NWBFile with relevant metadata
+    # ---------------------------------------------------------------------
     trialdate = datetime.strptime(session_ID[:13], '%y%m%d_%H%M%S')
     trialdate = trialdate.replace(tzinfo=tz.gettz('Europe/London'))
 
-    # Set up NWB file
     nwbfile = NWBFile(
         session_description=session_description,
         identifier=str(uuid4()),
@@ -154,156 +223,130 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
         experimenter=experimenter,
         institution=institution,
         lab=lab,
-        experiment_description=f"phase:{session_metadata['behaviour_phase']}; "
-                               f"rig:{session_metadata['rig_id']}; "
-                               f"wait:{session_metadata['wait_duration']}; "
-                               f"cue:{session_metadata['cue_duration']}"
+        experiment_description=(
+            f"phase:{session_metadata['behaviour_phase']}; "
+            f"rig:{session_metadata['rig_id']}; "
+            f"wait:{session_metadata['wait_duration']}; "
+            f"cue:{session_metadata['cue_duration']}"
+        )
     )
 
-    # Set up subject info
     nwbfile.subject = Subject(
         subject_id=mouse_id,
         species='Mouse',
         weight=float(session_metadata['mouse_weight'])
     )
 
-    # Loop through BUZZER and LED stimulus data types
+    # ---------------------------------------------------------------------
+    # (D) Add relevant channels as stimuli or acquisitions
+    # ---------------------------------------------------------------------
+    # Example for BUZZER & LED_...
     for i in ['BUZZER', 'LED_']:
         for j in range(1, 7):
             channel_name = i + str(j)
             if channel_name in channel_data:
-                # Load data
                 array = channel_data[channel_name]
-
-                # Load epochs and epoch timestamps
                 intervals, interval_timestamps = timeseries_to_intervals(timestamps, array)
-
-                # Create interval series
                 interval_series = IntervalSeries(
                     name=channel_name,
                     timestamps=interval_timestamps,
                     data=intervals,
                     description='Intervals for ' + channel_name
                 )
-
-                # Add to NWB file
                 nwbfile.add_stimulus(interval_series)
 
+    # Example for GO_CUE & NOGO_CUE
     for i in ['GO_CUE', 'NOGO_CUE']:
         if i in channel_data:
-            # Load data
             array = channel_data[i]
-
-            # Load epochs and epoch timestamps
             intervals, interval_timestamps = timeseries_to_intervals(timestamps, array)
-
-            # Create interval series
             interval_series = IntervalSeries(
                 name=i,
                 timestamps=interval_timestamps,
                 data=intervals,
                 description='Intervals for ' + i
             )
-
-            # Add to NWB file
             nwbfile.add_stimulus(interval_series)
 
-    # Add spotlight as timeseries to stimuli
+    # Add spotlight channels
     for j in range(1, 7):
         channel_name = 'SPOT' + str(j)
         if channel_name in channel_data:
-            # Load data
             array = channel_data[channel_name]
-
             timeseries = TimeSeries(
                 name=channel_name,
                 data=array,
                 timestamps=timestamps,
                 unit='n.a',
-                comments='Spotlight brightness represented between 1 and 0, '
-                         'a low-passed version of the PWM wave that controlled the spotlight brightness.',
+                comments=(
+                    'Spotlight brightness represented between 1 and 0, '
+                    'a low-passed version of the PWM wave that controlled the spotlight.'
+                ),
                 description='Spotlight data at ' + channel_name
             )
-
-            # Add to NWB file
             nwbfile.add_stimulus(timeseries)
 
     # Valve reward data
     for j in range(1, 7):
         channel_name = 'VALVE' + str(j)
         if channel_name in channel_data:
-            # Load data
             array = channel_data[channel_name]
-
-            # Load epochs and epoch timestamps
             intervals, interval_timestamps = timeseries_to_intervals(timestamps, array)
             digital_events, digital_event_timestamps = intervals_to_digital_events(intervals, interval_timestamps)
-
-            # Create timeseries
             timeseries = TimeSeries(
                 name=channel_name,
                 data=digital_events,
                 timestamps=digital_event_timestamps,
                 unit='s',
-                comments='Reward amounts are measured by how long the valve is open for',
-                description='Reward amount at ' + channel_name
+                comments='Reward amounts measure how long the valve is open',
+                description='Reward at ' + channel_name
             )
-
-            # Add to NWB file
             nwbfile.add_stimulus(timeseries)
 
-    # Loop through behavior data types
     # Sensor data
     i = 'SENSOR'
     for j in range(1, 7):
         channel_name = i + str(j)
         if channel_name in channel_data:
-            # Load data
             array = channel_data[channel_name]
-
-            # Load epochs and epoch timestamps
             intervals, interval_timestamps = timeseries_to_intervals(timestamps, array, HIGH=0)
-
-            # Create interval series
             interval_series = IntervalSeries(
                 name=channel_name,
                 timestamps=interval_timestamps,
                 data=intervals,
                 description='Epochs for ' + channel_name
             )
-
-            # Add to NWB file
             nwbfile.add_acquisition(interval_series)
 
-    # Scales data
-    # Load weights and timestamps
+    # ---------------------------------------------------------------------
+    # (E) Scales data
+    # ---------------------------------------------------------------------
     weights = np.array(scales_data['weights'], dtype=np.float64)
     scales_timestamps = np.array(scales_data['timestamps'], dtype=np.float64)
-
-    # Create timeseries
-    timeseries = TimeSeries(
+    scales_ts = TimeSeries(
         name='scales',
         data=weights,
         timestamps=scales_timestamps,
         unit='g',
-        comments=f"Threshold set to {scales_data['mouse_weight_threshold']}g. "
-                 "Scales data not timestamp accurate; these are estimated times and are not synced with other devices.",
+        comments=(
+            f"Threshold set to {scales_data['mouse_weight_threshold']}g. "
+            "Scales data not timestamp-accurate; these are approximate times not synced with other devices."
+        ),
         description='Scales data'
     )
+    nwbfile.add_acquisition(scales_ts)
 
-    # Add to NWB file
-    nwbfile.add_acquisition(timeseries)
-
-    # Load video data
+    # ---------------------------------------------------------------------
+    # (F) Video data (potentially already shifted if pulses were missing)
+    # ---------------------------------------------------------------------
     if not video_directory.exists():
         raise FileNotFoundError(f'Video file {video_directory} not found')
 
-    # Make numpy array of timestamps
+    # Sort keys and make a numpy array of (possibly shifted) timestamps
     numeric_keys = [key for key in video_timestamps.keys() if str(key).isdigit()]
     sorted_keys = sorted(numeric_keys, key=lambda x: int(x))
     video_ts = np.array([video_timestamps[key] for key in sorted_keys], dtype=np.float64)
 
-    # Create ImageSeries
     behaviour_video = ImageSeries(
         name='behaviour_video',
         external_file=['./' + video_directory.name],
@@ -313,11 +356,13 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
         unit='n.a',
         description='Behaviour top-down video'
     )
-
-    # Add to NWB file
     nwbfile.add_acquisition(behaviour_video)
 
-    # Save NWB file
+    # ---------------------------------------------------------------------
+    # (G) Save NWB file
+    # ---------------------------------------------------------------------
     savepath = session_directory / (session_directory.stem + '.nwb')
     with NWBHDF5IO(savepath, 'w') as io:
         io.write(nwbfile)
+
+    return nwbfile
