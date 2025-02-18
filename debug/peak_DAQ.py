@@ -38,12 +38,16 @@ class DAQViewer:
             for channel in channel_group:
                 self.channel_data[channel] = channel_group[channel][:]
 
-    def plot_channel_data(self, channel, start, end):
+    def plot_channel_data(self, channel, start, end, save=False, show=True):
         """
         Plot data for a specified channel between start and end indices.
+        Optionally save the plot and/or display it.
+        
         :param channel: The channel to be plotted
         :param start: Start index
         :param end: End index
+        :param save: Whether to save the plot to 'temp_output'
+        :param show: Whether to display the plot
         """
         # Check if the channel exists
         if channel not in self.channel_data:
@@ -52,7 +56,10 @@ class DAQViewer:
         
         # Ensure start and end are within bounds
         start = max(0, start)
-        end = min(len(self.channel_data[channel]), end)
+        if end != None:
+            end = min(len(self.channel_data[channel]), end)
+        else:
+            end = len(self.channel_data[channel])
 
         if start >= end:
             print("Invalid start and end indices. Please ensure start < end.")
@@ -70,26 +77,37 @@ class DAQViewer:
         plt.ylabel("Signal")
         plt.legend()
         plt.grid(True)
-        plt.show()
+        
+        # Save the plot if required
+        if save:
+            output_dir = "temp_output"
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"{channel}_plot_{start}_{end}.png")
+            plt.savefig(output_path)
+            print(f"Plot saved to {output_path}")
+
+        # Show the plot if required
+        if show:
+            plt.show()
+        else:
+            plt.close()
 
 def main():
-    parser = argparse.ArgumentParser(description="View and plot data from a DAQ file.")
-    parser.add_argument('--file', type=str, required=True, help='Path to the DAQ file (either JSON or HDF5)')
-    parser.add_argument('--channel', type=str, required=True, help='Channel to plot')
-    parser.add_argument('--start', type=int, default=0, help='Start index')
-    parser.add_argument('--end', type=int, default=1000, help='End index')
-    args = parser.parse_args()
 
-    file = args.file
-    channel = args.channel
-    start = args.start
-    end = args.end
+    show = False
+    save = True
+
+    # file = r"/cephfs2/dwelch/Behaviour/November_cohort/250131_112302/250131_112303_wtjp273-3f/250131_112303_wtjp273-3f-ArduinoDAQ.h5"
+    file = r"/cephfs2/dwelch/Behaviour/November_cohort/250131_150004/250131_150005_wtjp273-3f/250131_150005_wtjp273-3f-ArduinoDAQ.h5"
+    channel = 'CAMERA'
+    start = 8000 
+    end = 10000
 
     # Initialize DAQViewer with the provided file
     viewer = DAQViewer(file)
     
     # Plot the data for the specified channel and range
-    viewer.plot_channel_data(channel, start, end)
+    viewer.plot_channel_data(channel, start, end, save = save, show = show)
 
 if __name__ == "__main__":
     main()

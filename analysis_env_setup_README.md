@@ -73,8 +73,7 @@ mkdir .vscode
 {
     "python.languageServer": "Pylance",
     "python.analysis.extraPaths": [
-        "${workspaceFolder}",
-        "C:/Dev/projects/analysis_notebooks"  # Adjust path as needed
+        "${workspaceFolder}"
     ]
 }
 ```

@@ -9,10 +9,7 @@ import re
 import traceback
 from datetime import datetime
 
-from pynwb import NWBHDF5IO, NWBFile, TimeSeries, ProcessingModule, load_namespaces
-from pynwb.behavior import SpatialSeries
-from pynwb.file import Subject, LabMetaData
-from pynwb.spec import NWBNamespaceBuilder, NWBGroupSpec, export_spec
+from pynwb import NWBHDF5IO
 
 from utils.plot_graphical_cohort_info import graphical_cohort_info
 
