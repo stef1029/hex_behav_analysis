@@ -80,11 +80,16 @@ def main():
     parser.add_argument('--end', type=int, default=1000, help='End index')
     args = parser.parse_args()
 
+    file = args.file
+    channel = args.channel
+    start = args.start
+    end = args.end
+
     # Initialize DAQViewer with the provided file
-    viewer = DAQViewer(args.file)
+    viewer = DAQViewer(file)
     
     # Plot the data for the specified channel and range
-    viewer.plot_channel_data(args.channel, args.start, args.end)
+    viewer.plot_channel_data(channel, start, end)
 
 if __name__ == "__main__":
     main()
