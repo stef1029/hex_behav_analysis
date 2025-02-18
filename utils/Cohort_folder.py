@@ -365,12 +365,22 @@ class Cohort_folder:
 
 
     def check_raw_data(self):
+        """
+        For each session, checks if the expected raw data files are present.
+        Also checks if the 'phase' in the session metadata is one of the valid
+        phases (exact string match). If not, we tag the session as incomplete.
+        """
+        # Define which phases are considered valid (in exact, lower-case form)
+        valid_phases = ["1", "2", "3", "3b", "3c", "4", "4b", "4c",
+                        "test", "5", "6", "7", "8", "9", "9b", "9c", "10"]
+
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
                 raw_data = {}
                 check_list = []
 
+                # Look for required raw data files
                 raw_data["raw_video"] = str(self.find_file(session_folder, '.avi'))
                 raw_data["behaviour_data"] = str(self.find_file(session_folder, 'behaviour_data'))
                 check_list.append(raw_data["behaviour_data"])
@@ -405,11 +415,13 @@ class Cohort_folder:
                     raw_data["scales_data"] = False
                     check_list.append("None")
 
+                # Determine if all raw files are present (before phase check)
                 if "None" not in check_list:
                     raw_data["is_all_raw_data_present?"] = True
                 else:
                     raw_data["is_all_raw_data_present?"] = False
 
+                # Track which files are missing
                 missing_files = []
                 if raw_data["raw_video"] == "None":
                     missing_files.append("raw_video")
@@ -429,17 +441,30 @@ class Cohort_folder:
 
                 raw_data["missing_files"] = missing_files
 
-                # get OEAB file info
+                # If OEAB_legacy, store OEAB folder contents
                 if self.OEAB_legacy:
                     OEAB_contents = self.get_OEAB_file_info(raw_data["OEAB"])
                     raw_data["OEAB_contents"] = OEAB_contents
 
-                # video length
+                # Get the video length from tracker_data
                 raw_data["video_length"] = self.get_video_length(raw_data["tracker_data"])
 
-                # session metadata
+                # Read the session metadata from the relevant file (JSON or NWB)
                 raw_data["session_metadata"] = self.get_session_metadata(raw_data["behaviour_data"])
 
+                # -------------------------
+                # *New* phase validation:
+                # -------------------------
+                # If the session's phase is not an exact match in valid_phases,
+                # force "is_all_raw_data_present?" to be False.
+                phase_in_file = raw_data["session_metadata"].get("phase", None)
+                if phase_in_file not in valid_phases:
+                    raw_data["is_all_raw_data_present?"] = False
+                    # Optionally note "invalid_phase" in missing_files for clarity
+                    if "invalid_phase" not in raw_data["missing_files"]:
+                        raw_data["missing_files"].append("invalid_phase")
+
+                # Store the raw_data dict back into self.cohort
                 self.cohort["mice"][mouse]["sessions"][session]["raw_data"] = raw_data
 
 
