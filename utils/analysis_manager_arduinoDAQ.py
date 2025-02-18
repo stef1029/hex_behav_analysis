@@ -108,7 +108,8 @@ class Process_Raw_Behaviour_Data:
                    session_description="Red Hex behaviour", 
                    experimenter="Stefan Rogers-Coltman", 
                    institution="MRC LMB", 
-                   lab="Tripodi Lab")
+                   lab="Tripodi Lab",
+                   max_frame_id=self.max_frame_ID)
 
         print("Processing complete.")
         # print time taken in mimutes and seconds:
@@ -209,6 +210,7 @@ class Process_Raw_Behaviour_Data:
             self.frame_IDs = self.video_metadata["frame_IDs"]
         else:
             raise Exception("Error: No frame_IDs found in tracker_data.json. Processing aborted.")
+        self.max_frame_ID = max(self.frame_IDs)
 
         for i, pulse in enumerate(self.camera_pulses):
             self.pulse_times[i] = pulse
@@ -583,7 +585,7 @@ def main_MP():
 
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"E:\Test_output")
+    cohort_directory = Path(r"Z:\debug_vids")
 
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
@@ -603,7 +605,7 @@ def main_MP():
     logger.addHandler(console_handler)
     # --------------------------
 
-    Cohort = Cohort_folder(cohort_directory, multi = True, plot=False, OEAB_legacy = False)
+    Cohort = Cohort_folder(cohort_directory, multi = False, plot=False, OEAB_legacy = False)
 
     directory_info = Cohort.cohort
 
@@ -629,10 +631,10 @@ def main_MP():
     # sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
 
     for session in sessions_to_process:
-        print(f"Processing {session.get('directory')}...")
+        print(f"\n\nProcessing {session.get('directory')}...")
         Process_Raw_Behaviour_Data(session, logger)
 
-    directory_info = Cohort_folder(cohort_directory, multi = True, plot=True, OEAB_legacy = False).cohort
+    directory_info = Cohort_folder(cohort_directory, multi = False, plot=False, OEAB_legacy = False).cohort
 
     # print total time taken in minutes and seconds, rounded to whole numbers
         

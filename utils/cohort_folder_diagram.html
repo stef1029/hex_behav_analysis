@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cohort Data Structures</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+    <style>
+        @media print {
+            @page {
+                margin: 0.5in;
+            }
+            body {
+                font-family: Arial, sans-serif;
+            }
+            .diagram-container {
+                page-break-after: always;
+                margin-bottom: 30px;
+            }
+            h1 {
+                font-size: 24px;
+                margin-bottom: 20px;
+            }
+            h2 {
+                font-size: 20px;
+                margin-bottom: 15px;
+                color: #333;
+            }
+            .print-button {
+                display: none;
+            }
+        }
+        
+        body {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .diagram-container {
+            margin-bottom: 40px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 5px;
+        }
+        .print-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .print-button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <button class="print-button" onclick="window.print()">Print Diagrams</button>
+    
+    <h1>Cohort Data Structures Documentation</h1>
+    
+    <div class="diagram-container">
+        <h2>1. Main Cohort Dictionary Structure</h2>
+        <div class="mermaid">
+        graph TD
+            A[self.cohort<br>Dict] --> B["Cohort name<br>str"]
+            A --> C["mice<br>Dict"]
+            C --> D["mouse_id<br>Dict"]
+            D --> E["sessions<br>Dict"]
+            E --> F["session_id<br>Dict"]
+            F --> G["directory<br>str"]
+            F --> H["mouse_id<br>str"]
+            F --> I["session_id<br>str"]
+            F --> J["portable<br>bool"]
+            F --> K["raw_data<br>Dict"]
+            K --> L["raw_video<br>str"]
+            K --> M["behaviour_data<br>str"]
+            K --> N["tracker_data<br>str"]
+            K --> O["arduino_DAQ_json/h5<br>str"]
+            K --> P["OEAB<br>str"]
+            K --> Q["scales_data<br>bool"]
+            K --> R["is_all_raw_data_present?<br>bool"]
+            K --> S["missing_files<br>List[str]"]
+            K --> T["video_length<br>int|None"]
+            K --> U["session_metadata<br>Dict"]
+            U --> V["phase<br>str|None"]
+            U --> W["total_trials<br>int|None"]
+            U --> X["cue_duration<br>str|None"]
+            U --> Y["wait_duration<br>str"]
+
+            style A fill:#f9f,stroke:#333,stroke-width:2px
+            linkStyle default stroke:#333,stroke-width:1px
+        </div>
+    </div>
+
+    <div class="diagram-container">
+        <h2>2. Concise Cohort Dictionary Structure</h2>
+        <div class="mermaid">
+        graph TD
+            A[self.cohort_concise<br>Dict] --> B["complete_data<br>Dict"]
+            A --> C["incomplete_data<br>Dict"]
+            
+            B --> D["mouse_id<br>Dict"]
+            C --> E["mouse_id<br>Dict"]
+            
+            D --> F["session_id<br>Dict"]
+            E --> G["session_id<br>Dict"]
+            
+            F --> H["Behaviour_phase<br>str"]
+            F --> I["total_trials<br>int"]
+            F --> J["video_length<br>int|None"]
+            F --> K["mouse_id<br>str"]
+            
+            G --> L["Behaviour_phase<br>str"]
+            G --> M["total_trials<br>int"]
+            G --> N["video_length<br>int|None"]
+            G --> O["mouse_id<br>str"]
+
+            style A fill:#bbf,stroke:#333,stroke-width:2px
+            linkStyle default stroke:#333,stroke-width:1px
+        </div>
+    </div>
+
+    <div class="diagram-container">
+        <h2>3. Phases Dictionary Structure</h2>
+        <div class="mermaid">
+        graph TD
+            A[phases_dict<br>Dict] --> B["phase_1<br>Dict"]
+            A --> C["phase_2<br>Dict"]
+            A --> D["phase_3<br>Dict"]
+            A --> E["...<br>Dict"]
+            
+            B --> F["session_id<br>Dict"]
+            C --> G["session_id<br>Dict"]
+            D --> H["session_id<br>Dict"]
+            
+            F --> I["path<br>str"]
+            F --> J["total_trials<br>int"]
+            F --> K["video_length<br>int|None"]
+            F --> L["mouse<br>str"]
+            
+            style A fill:#bfb,stroke:#333,stroke-width:2px
+            linkStyle default stroke:#333,stroke-width:1px
+            
+            note["Note: Valid phases include:<br>1, 2, 3, 3b, 3c, 4, 4b, 4c,<br>test, 5, 6, 7, 8, 9, 9b, 9c, 10"]
+            style note fill:#fffacd,stroke:#333,stroke-width:1px
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                fontSize: '16px'
+            }
+        });
+    </script>
+</body>
+</html>

@@ -181,10 +181,12 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
             # Number of pulses
             detected_pulses = len(edges)
 
-            # Heuristic check: if the first pulse is under ~27 ms from 0,
+            # Heuristic check: if the first pulse is under [start minimum]ms from 0,
             # we suspect we've missed pulses that happened prior to DAQ start
-            if first_pulse_time < 0.1:
+            start_minimum = 0.1  # seconds
+            if first_pulse_time < start_minimum:
                 missing_frames = max_frame_id - detected_pulses
+                print(max_frame_id, detected_pulses)
                 if missing_frames > 0:
                     # Calculate framerate from the pulses we do have
                     # Here, we use the median difference between consecutive camera pulses
@@ -199,7 +201,7 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
 
                     shift_time = missing_frames / frame_rate
                     print(f"  [CAMERA WARNING] The first camera pulse occurs at {first_pulse_time*1000:.2f} ms "
-                          f"(<{0.027*1000:.2f} ms). Likely truncated pulses. "
+                          f"(<{start_minimum*1000:.2f} ms). Likely truncated pulses. "
                           f"Shifting video timestamps backward by {shift_time:.3f} s.\n")
 
                     # Shift all video timestamps backward by shift_time
@@ -209,7 +211,8 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
                         # If it's numeric
                         if str(key).isdigit():
                             video_timestamps[key] = float(video_timestamps[key]) - shift_time
-
+            else:
+                print(f"  [CAMERA INFO] First camera pulse occurs at {first_pulse_time*1000:.2f} ms.")
     # ---------------------------------------------------------------------
     # (C) Prepare an NWBFile with relevant metadata
     # ---------------------------------------------------------------------
