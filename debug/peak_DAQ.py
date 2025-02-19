@@ -98,7 +98,7 @@ def main():
     save = False
 
     # file = r"/cephfs2/dwelch/Behaviour/November_cohort/250131_112302/250131_112303_wtjp273-3f/250131_112303_wtjp273-3f-ArduinoDAQ.h5"
-    file = r"Z:\debug_vids\250131_150005_wtjp273-3f\250131_150005_wtjp273-3f-ArduinoDAQ.h5"
+    file = r"Z:\debug_vids\250131_112303_wtjp273-3f\250131_112303_wtjp273-3f-ArduinoDAQ.h5"
     channel = 'CAMERA'
     start = 0 
     end = None
