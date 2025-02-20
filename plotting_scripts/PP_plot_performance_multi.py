@@ -328,3 +328,10 @@ def plot_performance_by_angle(sessions_input,
 
         print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
         plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+        # Save the plot as PNG in the desired folder
+        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+    
+    # Display the plot
+    plt.show()
