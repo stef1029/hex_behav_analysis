@@ -10,7 +10,9 @@ from utils.Session_nwb import Session
 
 def plot_performance_by_angle(sessions, 
                               cue_times,
-                              title='title', 
+                              plot_title='title', 
+                              x_title='',
+                              y_title='',
                               bin_mode='manual', 
                               num_bins=12, 
                               trials_per_bin=10, 
@@ -18,8 +20,10 @@ def plot_performance_by_angle(sessions,
                               cue_mode='both',
                               error_bars='SEM',
                               x_label_gap = 30,
+                              use_predefined_colors = "yes",
                               output_path = None,
-                              use_predefined_colors = "yes"):
+                              draft = False,
+                              plot_save_name = 'untitled_plot'):
     """
     This function takes a list of lists of sessions and plots the performance by angle of all trials in the sessions given.
     ### Inputs: 
@@ -31,6 +35,8 @@ def plot_performance_by_angle(sessions,
     - trials_per_bin: number of trials per bin for tbp bin mode.
     - plot_mode: 'radial' or 'bar' to choose the type of plot
     - cue_mode: 'both', 'visual' or 'audio' to choose the type of cue to plot
+    - plot_save_name: base name for saved files (if None, uses default based on plot mode)
+    - draft: if True, includes timestamp in filename; if False, uses 'final_' prefix
     """
     # Define a color map
     viridis = plt.cm.get_cmap('viridis')
@@ -262,28 +268,35 @@ def plot_performance_by_angle(sessions,
             ax.set_theta_direction(1)
 
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), shadow=True, ncol=1, title='Cue Time:')
-        ax.set_title(title, va='bottom', fontsize=16)
+        ax.set_title(plot_title, va='bottom', fontsize=16)
         
         # ------ save figures ------    
 
-        # Create directory if it doesn't exist (but don't concatenate path multiple times)
+    if output_path is not None:
+        # Create directory if it doesn't exist
         if not output_path.exists():
             output_path.mkdir(parents=True, exist_ok=True)
 
         # Define the base filename with date and time
         date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        base_filename = f"{date_time}_cue_time_comparison_radial"
+        plot_save_name = plot_save_name + "_radial"
+
+        if draft:
+            base_filename = f"{date_time}_{plot_save_name}_{cue_mode}"
+        else:
+            base_filename = f"final_{plot_save_name}_{cue_mode}"
+            
         output_filename_svg = f"{base_filename}.svg"
         output_filename_png = f"{base_filename}.png"
 
-        # Check for existing SVG and PNG files and modify filenames if necessary
-        counter = 0
-        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
-            output_filename_svg = f"{base_filename}_{counter}.svg"
-            output_filename_png = f"{base_filename}_{counter}.png"
-            counter += 1
-
+        # Check for existing files and modify filenames if necessary
+        # counter = 0
+        # while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+        #     output_filename_svg = f"{base_filename}_{counter}.svg"
+        #     output_filename_png = f"{base_filename}_{counter}.png"
+        #     counter += 1
+            
         # Save the plot as SVG in the desired folder
         print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
         plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
@@ -340,38 +353,45 @@ def plot_performance_by_angle(sessions,
         ax.set_xticklabels(tick_labels)
 
 
-        ax.set_title(title, fontsize=16)
-        ax.set_xlabel('Angle (degrees)')
-        ax.set_ylabel('Performance')
+        ax.set_title(plot_title, fontsize=16)
+        ax.set_xlabel(x_title)
+        ax.set_ylabel(y_title)
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), shadow=True, ncol=1, title='Cue Time:')
 
         # ------ save figures ------    
 
-        # Create directory if it doesn't exist (but don't concatenate path multiple times)
-        if not output_path.exists():
-            output_path.mkdir(parents=True, exist_ok=True)
+        if output_path is not None:
+            # Create directory if it doesn't exist
+            if not output_path.exists():
+                output_path.mkdir(parents=True, exist_ok=True)
 
-        # Define the base filename with date and time
-        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Define the base filename with date and time
+            date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        base_filename = f"{date_time}_cue_time_comparison_line"
-        output_filename_svg = f"{base_filename}.svg"
-        output_filename_png = f"{base_filename}.png"
+            plot_save_name = plot_save_name + "_linear"
 
-        # Check for existing SVG and PNG files and modify filenames if necessary
-        counter = 0
-        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
-            output_filename_svg = f"{base_filename}_{counter}.svg"
-            output_filename_png = f"{base_filename}_{counter}.png"
-            counter += 1
+            if draft:
+                base_filename = f"{date_time}_{plot_save_name}_{cue_mode}"
+            else:
+                base_filename = f"final_{plot_save_name}_{cue_mode}"
+                
+            output_filename_svg = f"{base_filename}.svg"
+            output_filename_png = f"{base_filename}.png"
 
-        # Save the plot as SVG in the desired folder
-        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
-        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+            # Check for existing files and modify filenames if necessary
+            counter = 0
+            while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+                output_filename_svg = f"{base_filename}_{counter}.svg"
+                output_filename_png = f"{base_filename}_{counter}.png"
+                counter += 1
 
-        # Save the plot as PNG in the desired folder
-        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
-        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+            # Save the plot as SVG in the desired folder
+            print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+            plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+            # Save the plot as PNG in the desired folder
+            print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+            plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
 
         # --------------------------------------------
 

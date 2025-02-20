@@ -107,6 +107,10 @@ def plot_performance_by_angle(sessions_dict,
                 if trial["turn_data"] is not None:
                     cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
                     port_touched_angle = trial["turn_data"]["port_touched_angle"]
+                    if trial["turn_data"]["left_ear_likelihood"] < 0.6:
+                        continue
+                    if trial["turn_data"]["right_ear_likelihood"] < 0.6:
+                        continue
                     for bin in bins:
                         # find performance to each angle based on cue presentation angle
                         if cue_presentation_angle < bin + bin_size and cue_presentation_angle >= bin:
