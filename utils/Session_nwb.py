@@ -1,76 +1,161 @@
 from pathlib import Path
-import json
 import pandas as pd
 import bisect
 import cv2 as cv
 import math
 import numpy as np
-from datetime import datetime
-import traceback
-
-from pynwb import NWBHDF5IO, NWBFile, TimeSeries, ProcessingModule, load_namespaces
-from pynwb.behavior import SpatialSeries
-from pynwb.file import Subject, LabMetaData
-from pynwb.spec import NWBNamespaceBuilder, NWBGroupSpec, export_spec
+import pickle
+from pynwb import NWBHDF5IO, TimeSeries, ProcessingModule
 
 from utils.Cohort_folder import Cohort_folder
-from utils.DAQ_plot import DAQ_plot
+from utils.DetectTrials import DetectTrials
 
 class Session:
-    def __init__(self, session_dict):
+    def __init__(self, session_dict, recalculate=False):
+        """
+        Initialize a Session object.
+        
+        Args:
+            session_dict (dict): Dictionary containing session information.
+            recalculate (bool): If True, force recalculation of trials even if analysis pickle exists.
+        """
         try:
             self.session_dict = session_dict
-
-
-            
             self.session_directory = Path(self.session_dict.get('directory'))
-
             self.session_ID = self.session_dict.get('session_id')
             print(f"Loading session {self.session_ID}...")
             
             self.portable = self.session_dict['portable']
-
-            if self.portable == True:
+            if self.portable:
                 self.nwb_file_path = Path(self.session_dict.get('NWB_file'))
-            
             else:
                 self.nwb_file_path = Path(self.session_dict.get('processed_data', {}).get('NWB_file'))
                 self.DLC_coords_path = Path(self.session_dict.get('processed_data', {}).get('DLC', {}).get('coords_csv'))
 
+            # Define the analysis pickle file path (e.g. session123_analysis.pkl)
+            self.analysis_pickle_path = self.nwb_file_path.parent / (self.nwb_file_path.stem + "_analysis.pkl")
+
+            # Read required metadata from the original NWB file.
             with NWBHDF5IO(str(self.nwb_file_path), 'r') as io:
                 nwbfile = io.read()
-                DLC_coords_present = 'behaviour_coords' in nwbfile.processing
+                self.last_timestamp = nwbfile.acquisition['scales'].timestamps[-1]
+                session_metadata = nwbfile.experiment_description
+                self.phase = str(session_metadata.split(";")[0].split(":")[1])
+                self.rig_id = int(session_metadata.split(";")[1].split(":")[1])
             
+            # Check if analysis pickle file exists and is non-empty.
+            analysis_data = self._load_analysis_pickle()
+            trials_present = "trials" in analysis_data and analysis_data["trials"]
+            video_data_present = "video_data" in analysis_data and analysis_data["video_data"]
 
             self.load_data()
 
-            self.trial_detector = DetectTrials(self.nwb_file_path)
+            if not trials_present or recalculate:
+                # Process session to detect trials.
+                self.trial_detector = DetectTrials(self.nwb_file_path)
+                self.trials = self.trial_detector.trials
+                self.save_trials_to_analysis()
+                if recalculate:
+                    print("Recalculating trials as requested...")
+            else:
+                self.load_trials_from_analysis()
 
-            self.trials = self.trial_detector.trials
-            # print(self.trials[:10])
-
-            # # trials are currently formatted as a list of trial objects, each containing this data:
-            # # eg: {'start': 2234722, 'end': 2238854, 'correct_port': 3, 'next_sensor_time': 2238850, 'next_sensor_ID': 3}
-
-            # # only if the key is a number, not words:
-            # self.timestamps = [float(timestamp) for timestamp in self.processed_DAQ_data["timestamps"]]
-
-            # self.trials = self.add_timestamps(self.trials)
-
-            # self.indexed_frametimes = self.frametime_to_index(self.video_frametimes)
-
-            self.add_video_data_to_trials()
-
-            
+            if not video_data_present or recalculate:
+                self.add_video_data_to_trials()
+                self.save_video_data_to_analysis()
+            else:
+                self.load_video_data_from_analysis()
 
             self.add_angle_data()
+
         except Exception:
             print(f"Error loading session {self.session_ID}")
+            import traceback
             traceback.print_exc()
             pass
-        # print(self.trials[0])
 
-        # print("Session loaded.")
+    def _save_analysis_pickle(self, analysis_dict):
+        """Helper to dump analysis data to the pickle file."""
+        with open(self.analysis_pickle_path, 'wb') as f:
+            pickle.dump(analysis_dict, f)
+
+    def _load_analysis_pickle(self):
+        """Helper to load analysis data from the pickle file.
+           Returns an empty dict if the file does not exist or is empty."""
+        if not self.analysis_pickle_path.exists() or self.analysis_pickle_path.stat().st_size == 0:
+            return {}
+        with open(self.analysis_pickle_path, 'rb') as f:
+            try:
+                return pickle.load(f)
+            except EOFError:
+                return {}
+
+    def save_trials_to_analysis(self):
+        """
+        Save detected trials into a pickle file.
+        Stores a dictionary with key 'trials' and 'trials_timestamps' (from original NWB file).
+        """
+        with NWBHDF5IO(str(self.nwb_file_path), 'r') as io:
+            orig_nwb = io.read()
+            ts = orig_nwb.acquisition['scales'].timestamps[:len(self.trials)]
+        analysis_dict = self._load_analysis_pickle()
+        analysis_dict["trials"] = self.trials
+        analysis_dict["trials_timestamps"] = ts
+        self._save_analysis_pickle(analysis_dict)
+        # print("Trial data saved to analysis pickle.")
+
+    def load_trials_from_analysis(self):
+        """Load trial data from the analysis pickle file."""
+        analysis_dict = self._load_analysis_pickle()
+        if "trials" in analysis_dict:
+            self.trials = analysis_dict["trials"]
+            # Reset video-related fields so they can be updated later.
+            for trial in self.trials:
+                trial["video_frames"] = None
+                trial["DLC_data"] = None
+            # print("Trial data loaded from analysis pickle.")
+        else:
+            # print("No trial data found in analysis pickle.")
+            pass
+
+    def save_video_data_to_analysis(self):
+        """
+        Save video frame data and DLC data into the analysis pickle file.
+        Stores a dictionary with key 'video_data' and 'video_timestamps'.
+        """
+        video_data = []
+        for trial in self.trials:
+            trial_video_data = {
+                'trial_no': trial.get('trial_no'),
+                'video_frames': trial.get('video_frames'),
+                'DLC_data': trial.get('DLC_data')  # Pickle can serialize DataFrames as is.
+            }
+            video_data.append(trial_video_data)
+        with NWBHDF5IO(str(self.nwb_file_path), 'r') as io:
+            orig_nwb = io.read()
+            ts = orig_nwb.acquisition['scales'].timestamps[:len(video_data)]
+        analysis_dict = self._load_analysis_pickle()
+        analysis_dict["video_data"] = video_data
+        analysis_dict["video_timestamps"] = ts
+        self._save_analysis_pickle(analysis_dict)
+        # print("Video data saved to analysis pickle.")
+
+    def load_video_data_from_analysis(self):
+        """
+        Load video data from the analysis pickle file and merge it into self.trials.
+        """
+        analysis_dict = self._load_analysis_pickle()
+        if "video_data" in analysis_dict:
+            video_data = analysis_dict["video_data"]
+            for trial_video_data in video_data:
+                trial_no = trial_video_data.get('trial_no')
+                if trial_no is not None and trial_no < len(self.trials):
+                    self.trials[trial_no]['video_frames'] = trial_video_data.get('video_frames')
+                    self.trials[trial_no]['DLC_data'] = trial_video_data.get('DLC_data')
+            # print("Video data loaded from analysis pickle.")
+        else:
+            # print("No video data found in analysis pickle.")
+            pass
 
     def add_timestamps(self, trials):
         new_trials = []
@@ -634,278 +719,7 @@ class Session:
 
 
 
-class DetectTrials:
-    """
-    Detects trials based on the phase thats sent to it.
-    Most phases should come under the normal detector, with audio, except 1, 2 and potentially the wait trails.
-    """
-    def __init__(self, nwbfile_path):
-        self.nwbfile_path = nwbfile_path
-        with NWBHDF5IO(self.nwbfile_path, 'r') as io:
-            nwbfile = io.read()
-            self.last_timestamp = nwbfile.acquisition['scales'].timestamps[-1]
-            session_metadata = nwbfile.experiment_description
-            
-            # session metadata looks like this: "phase:x;rig;y". Extract x and y:
-            self.phase = session_metadata.split(";")[0].split(":")[1]
-            self.rig_id = session_metadata.split(";")[1].split(":")[1]
-            # self.wait_duration = session_metadata.split(";")[2].split(":")[1]
-            # self.cue_duration = session_metadata.split(";")[3].split(":")[1]
 
-        # print(f"Phase: {phase}, Rig: {rig_id}")
-
-        # self.phase = '9'  # for now, just set to 9 for testing
-        # self.rig_id = '1'  # for now, just set to 1 for testing
-
-        # if phase == "1" or phase == "2":
-        #     self.early_phase_find_trials(1)
-        # else:
-        self.trials = self.create_trial_list(phase = self.phase)
-
-        # print(self.get_session_stats(trials))
-
-    def create_trial_list(self, phase):
-        
-        trial_list = []
-
-        if phase not in ["1", "2"]:
-            for i in range(1, 7):
-                channel = f"LED_{i}"
-                trials = self.find_trials_cue(channel)
-                for trial in trials:
-                    trial_list.append(trial)
-            trials = self.find_trials_cue("GO_CUE")
-            for trial in trials:
-                trial_list.append(trial)
-        
-
-
-        if phase == "1" or phase == "2":        # if phase 1 or 2, use the valve data to find trials.
-            for i in range(1, 7):
-                channel = f"VALVE{i}"
-                trials = self.find_trials_cue(channel)
-                for trial in trials:
-                    trial_list.append(trial)
-
-        # sort trial list by start time:
-        trial_list.sort(key=lambda trial: trial["cue_start"])
-
-        trial_list = self.find_trials_sensor(trial_list, phase)
-        for i, trial in enumerate(trial_list):
-            trial["phase"] = phase
-            # print(phase, i, trial['cue_start'])
-
-        if phase == "9c":
-            trial_list = self.check_go_cue_activation(trial_list)
-
-        if phase == '10':
-            trial_list = self.merge_trials(trial_list)
-        
-        trial_list.sort(key=lambda trial: trial["cue_start"])
-        for i, trial in enumerate(trial_list):
-            trial['trial_no'] = i
-
-        return trial_list
-    
-    
-    def merge_trials(self, trial_list):
-        """
-        Merge trials in the list based on matching cue_start and handle PWM dimming.
-        
-        Args:
-            trial_list (list): List of trial dictionaries, each containing 'cue_start', 'cue_end', and 'correct_port' keys.
-            
-        Returns:
-            list: Updated list of trials with merged trials.
-        """
-        merged_trials = []
-        skip_next = False
-
-        i = 0
-        while i < len(trial_list) - 1:
-            if skip_next:
-                skip_next = False
-                i += 1
-                continue
-
-            trial_1 = trial_list[i]
-            trial_2 = trial_list[i + 1]
-
-            # Compare the cue_start times to 2 decimal places
-            if round(trial_1['cue_start'], 2) == round(trial_2['cue_start'], 2):
-                if (trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} and trial_2['correct_port'] == 'audio-1') or \
-                (trial_2['correct_port'] in {'1', '2', '3', '4', '5', '6'} and trial_1['correct_port'] == 'audio-1'):
-                    
-                    # Determine the merged trial, and update the cue_end using the audio-1 trial
-                    led_trial = trial_1 if trial_1['correct_port'] in {'1', '2', '3', '4', '5', '6'} else trial_2
-                    audio_trial = trial_1 if trial_1['correct_port'] == 'audio-1' else trial_2
-                    
-                    # Update the cue_end of the LED trial to match the audio trial
-                    led_trial['cue_end'] = audio_trial['cue_end']
-                    led_trial['next_sensor'] = audio_trial['next_sensor']
-                    
-                    # Mark the trial as a catch trial
-                    led_trial['catch'] = True
-                    
-                    # Remove any LED trials that fall within the time range of this catch trial
-                    merged_trials.append(led_trial)
-                    skip_next = True
-                    
-                    # Skip all trials with cue_start within the new led_trial['cue_start'] and led_trial['cue_end'] range
-                    for j in range(i + 2, len(trial_list)):
-                        if trial_list[j]['cue_start'] >= led_trial['cue_start'] and trial_list[j]['cue_start'] <= led_trial['cue_end']:
-                            skip_next = True
-                        else:
-                            break
-                    i = j
-                else:
-                    trial_1['catch'] = False
-                    merged_trials.append(trial_1)
-                    i += 1
-            else:
-                trial_1['catch'] = False
-                merged_trials.append(trial_1)
-                i += 1
-    
-        # Append the last trial if it wasn't merged
-        if not skip_next and i < len(trial_list):
-            trial_list[i]['catch'] = False
-            merged_trials.append(trial_list[i])
-
-        return merged_trials
-
-    def find_trials_cue(self, channel):
-        """
-        Goes through each port one at a time finding trials.
-        """
-        trials = []
-        # ------- Find events for cue: ------------
-        with NWBHDF5IO(self.nwbfile_path, 'r') as io:
-            nwbfile = io.read()
-
-            channel_timeseries = nwbfile.stimulus[channel]      # grab whole timeseries for channel
-
-            cue_data = channel_timeseries.data[:]               # grab data (array of [1 -1 1 -1 etc...])       If using VALVEs as cues, this is a list of durations.
-            cue_timestamps = channel_timeseries.timestamps[:]   # grab timestamps corresponding to each of these points
-
-            if 'VALVE' not in channel:
-                if len(cue_data) > 0:
-                    if cue_data[0] == 1:        # This check that it start from an LED going on during the session.
-                        start = 0               # Needed in case an LED was on before a session started for some reason.
-                    if cue_data[0] == -1:   
-                        start = 1
-
-                    # Get the indices for starts and ends of LED events
-                    start_indices = np.arange(start, len(cue_data), 2)
-                    end_indices = np.arange(start + 1, len(cue_data), 2)
-
-                    start_timestamps = cue_timestamps[start_indices]  # Finds the corresponding timestamps for all led on times.
-
-                    # Handle the case where the last LED event doesn't end within the data
-                    if cue_data[-1] == 1 and len(end_indices) < len(start_indices):  # If the last data point is 'on', add a placeholder
-                        end_timestamps = np.append(cue_timestamps[end_indices], None)  # Append None for the last unfinished event
-                    else:
-                        end_timestamps = cue_timestamps[end_indices]
-
-                    correct_port = channel[-1] if channel != "GO_CUE" else "audio-1"  # Handle the channel naming
-
-                    # Combine start and end timestamps into events
-                    trials = [{'correct_port': correct_port, 'cue_start': start, 'cue_end': end}
-                            for start, end in zip(start_timestamps, end_timestamps)]
-                    
-            if 'VALVE' in channel:
-                # VALVE data stored differently, so to find start and end take the start timestamp and add the value that's in data.
-                trials = [{'correct_port': channel[-1], 'cue_start': cue_timestamps[i], 'cue_end': cue_timestamps[i] + cue_data[i]} for i in range(0, len(cue_timestamps))]
-
-            return trials
-        # ----------------------------------------------
-        # Now I have all the cue events from the channels. Now I need to find correponding sensor touches within the time between the start of the cue and the start of the next one.
-        # For each event in the LED list, go through each of the sensor channels and find the next event, and make a list of these.
-    def find_trials_sensor(self, trials, phase):
-        with NWBHDF5IO(self.nwbfile_path, 'r') as io:
-            nwbfile = io.read()
-            for i in range(1, 7):
-                channel = f"SENSOR{i}"
-
-                sensor_timeseries = nwbfile.acquisition[channel]
-
-                sensor_data = sensor_timeseries.data[:]
-                sensor_timestamps = sensor_timeseries.timestamps[:]
-
-                sensor_touches = []
-
-                for j, trial in enumerate(trials):
-                    if phase == '10':
-                        start = trial['cue_end']    # start looking at the end of the trial because there will be a gap and this means the audio trials
-                                                    #    will see the sensors after them rather than the being blocked by the flickering led flase trials. 
-                    else:
-                        start = trial["cue_start"]
-                    # Find the next trial that starts after the current trial's cue_end
-                    end = self.last_timestamp  # Default to last timestamp if no subsequent trial meets the criteria
-
-                    for k in range(j + 1, len(trials)):
-                        if trials[k]['cue_start'] > trial['cue_end']:
-                            end = trials[k]['cue_start']
-                            break
-                        
-                    # if trial['correct_port'] == 'audio-1':
-                    # print(f"Checking timespan: {end - start}")
-                    start_index = bisect.bisect_left(sensor_timestamps, start)
-                    end_index = bisect.bisect_left(sensor_timestamps, end)
-                    
-                    sensor_touches = [{'sensor_touched': channel[-1], 
-                                       'sensor_start': sensor_timestamps[k], 
-                                       'sensor_end': sensor_timestamps[k+1] if k+1 < len(sensor_timestamps) else None} 
-                                       for k in range(start_index, end_index) if sensor_data[k] == 1]              # error with sensor timestamps fixed here, if getting very long sensor activation, check the signs of the values
-                                                                                                                #      to check you're looking for the activation times.
-
-                    # check if 'sensor touches' key not in trial:
-                    if "sensor_touches" not in trial:
-                        trial[f"sensor_touches"] = sensor_touches
-                    else:
-                        trial[f"sensor_touches"].extend(sensor_touches)
-                
-            # sort sensor touches in each trial by sensor start time:
-            for trial in trials:
-                trial["sensor_touches"].sort(key=lambda touch: touch["sensor_start"])
-                trial["next_sensor"] = trial["sensor_touches"][0] if len(trial["sensor_touches"]) > 0 else {}
-                if trial["next_sensor"] != {}:
-                    trial["success"] = True if trial["next_sensor"]["sensor_touched"][-1] == trial["correct_port"] else False
-                else:
-                    trial["success"] = False
-           
-
-            return trials
-        
-    def check_go_cue_activation(self, trials):
-        """
-        Check if GO_CUE was activated between the LED cue and the first sensor touch in each trial.
-        Add a new key "go_cue" to the trial dictionary.
-        """
-        with NWBHDF5IO(self.nwbfile_path, 'r') as io:
-            nwbfile = io.read()
-
-            go_cue_timeseries = nwbfile.stimulus["GO_CUE"]
-            go_cue_data = go_cue_timeseries.data[:]
-            go_cue_timestamps = go_cue_timeseries.timestamps[:]
-
-            # Find all GO_CUE activation times
-            go_cue_activations = go_cue_timestamps[go_cue_data == 1]
-            # print(go_cue_activations)
-
-            for trial in trials:
-                cue_start = trial["cue_start"]
-                sensor_touches = trial["sensor_touches"]
-                first_sensor_touch_time = sensor_touches[0]["sensor_start"] if sensor_touches else False
-
-                if not first_sensor_touch_time:
-                    trial["go_cue"] = None
-                else:
-                    # Check if there is any GO_CUE activation between the LED cue and the first sensor touch
-                    go_cue_between = go_cue_activations[(go_cue_activations > cue_start) & (go_cue_activations < first_sensor_touch_time)]
-                    trial["go_cue"] = go_cue_between[0] if len(go_cue_between) > 0 else None
-
-        return trials
 
 def main():
 

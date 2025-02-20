@@ -1,246 +1,145 @@
-# Behavioral Trial Analysis Tool
+# Session Analysis Script Documentation
 
 ## Overview
-This Python script provides a comprehensive toolkit for analyzing behavioral trial data from experimental sessions. It's designed to process and analyze data from experimental setups involving:
-- Video recordings
-- LED cues
-- Sensor interactions
-- DeepLabCut (DLC) tracking data
-- NWB (Neurodata Without Borders) file format
+This script is designed to analyze behavioral experiments with mice, where the mice interact with a platform that has 6 ports arranged in a circle. The script processes video recordings of these experiments, tracking the mouse's movements and interactions with the ports.
+
+## What Does This Script Do?
+
+The script's main purpose is to:
+1. Load experimental session data
+2. Process video recordings
+3. Track mouse movements using DeepLabCut (DLC)
+4. Detect and analyze trials
+5. Calculate angles between the mouse and ports
+6. Save all this information for later use
+
+## Getting Started
+
+### Creating a Session Dictionary
+The first step is to create a session dictionary, which is required to create a Session object. The easiest way to do this is:
+
+1. Create a Cohort_folder object by passing your cohort directory:
+   ```python
+   cohort = Cohort_folder("/path/to/your/cohort/folder")
+   ```
+
+2. Use the cohort object to get your session dictionary:
+   ```python
+   session_dict = cohort.get_session("your_session_id")
+   ```
+
+### Creating a New Session
+
+When you create a new Session object (e.g., `session = Session(session_dict)`), the following happens:
+
+1. **Initial Setup**
+   - Loads basic session information (ID, directory paths)
+   - Finds necessary files (video recordings, data files)
+   - Checks if analysis has been done before
+
+2. **Data Loading**
+   - Loads experimental data from NWB files (special scientific data format)
+   - Gets important metadata like:
+     - Which experimental phase this is
+     - Which experimental rig was used
+     - Timestamps for the entire session
+
+3. **Trial Detection**
+   - Identifies individual trials in the session
+   - Each trial represents one interaction sequence where:
+     - A cue is presented
+     - The mouse responds
+     - A reward might be given
+
+4. **Video Analysis**
+   - For each trial, the script:
+     - Identifies relevant video frames
+     - Gets tracking data (where the mouse's ears are)
+     - Calculates the mouse's heading direction
+     - Determines angles between the mouse and ports
+
+### Data Storage
+
+The script saves processed data in two ways:
+1. **Analysis Pickle Files**: Quick-access files for later use
+2. **NWB Files**: Standard scientific data format for sharing
+
+## Important Terms
+
+- **Trial**: One complete interaction sequence
+- **DLC (DeepLabCut)**: Software that tracks mouse body parts in the video
+- **NWB**: A standard file format for scientific data
+- **Port**: One of six interaction points on the experimental platform
+- **Cue**: A signal telling the mouse which port to approach
 
 ## Key Features
-- Trial detection and analysis
-- Video frame extraction and processing
-- DeepLabCut coordinate processing
-- Behavioral angle calculations
-- NWB file handling
-- LED visualization
-- Multi-phase experiment support
 
-## Main Components
+1. **Automatic Trial Detection**
+   - Finds where trials start and end
+   - Groups relevant data for each trial
 
-### Session Class
-The primary class that handles individual experimental sessions. Key functionalities include:
-- Loading and processing session data
-- Managing video data
-- Processing DLC coordinates
-- Calculating behavioral angles
-- Adding video data to trials
-- LED visualization
+2. **Mouse Tracking**
+   - Tracks mouse ear positions
+   - Calculates which way the mouse is facing
+   - Determines angles between mouse and ports
 
-### DetectTrials Class
-Handles the detection and processing of experimental trials. Features include:
-- Trial detection based on different experimental phases
-- Processing of LED and sensor data
-- Trial merging for complex experimental protocols
-- Go-cue detection and validation
+3. **Video Processing**
+   - Can draw helpful markers on videos
+   - Shows which ports are active
+   - Visualizes mouse movement data
 
-## Dependencies
-- pathlib
-- json
-- pandas
-- bisect
-- cv2 (OpenCV)
-- math
-- numpy
-- datetime
-- pynwb
-- DeepLabCut
+4. **Data Saving**
+   - Saves processed data for quick reloading
+   - Prevents need to reanalyze everything each time
 
-## Data Structure Requirements
+## Common Use Cases
 
-### NWB File Structure
-The NWB files should contain:
-- Acquisition data (scales, sensors)
-- Stimulus data (LEDs, valves)
-- Video data
-- DLC coordinates (optional)
-- Session metadata
+1. **Analyzing New Sessions**
+   ```python
+   session = Session(session_dict)
+   ```
+   This loads and processes all the data for a new session.
 
-### Session Directory Structure
-Expected directory structure:
-```
-session_directory/
-├── NWB_file
-├── DLC_coords.csv (optional)
-├── behavior_video
-└── other_session_files
-```
+2. **Reprocessing Data**
+   ```python
+   session = Session(session_dict, recalculate=True)
+   ```
+   This forces the script to reanalyze everything, even if it's been done before.
 
-## Usage
+3. **Visualizing Results**
+   ```python
+   session.draw_LEDs(output_path="your_folder")
+   ```
+   This creates a video showing the analyzed session with helpful markers.
 
-### Basic Usage
-```python
-from session_analysis import Session
+## Tips for Users
 
-# Create a session object
-session = Session(session_dict)
+1. **First Time Setup**
+   - Make sure all required files are in the correct directories
+   - Check that video files and data files match
 
-# Access processed trials
-trials = session.trials
+2. **Error Handling**
+   - If something goes wrong, the script will print helpful error messages
+   - Common issues include missing files or mismatched data
 
-# Visualize LED positions
-session.draw_LEDs(start=0, end=None, output_path="output_directory")
-```
+3. **Data Checking**
+   - The script saves its work frequently
+   - You can always rerun analysis if needed
+   - Previous analysis is saved and won't be lost
 
-### Session Dictionary Format
-```python
-session_dict = {
-    'directory': 'path/to/session',
-    'session_id': 'YYMMDD_HHMMSS',
-    'portable': False,
-    'processed_data': {
-        'NWB_file': 'path/to/nwb',
-        'DLC': {
-            'coords_csv': 'path/to/dlc_coords.csv'
-        }
-    }
-}
-```
+## Technical Requirements
 
-## Trial Data Structure
-Each trial contains:
-- Start and end times
-- Correct port information
-- Sensor interaction data
-- Video frame indices
-- DLC tracking data
-- Behavioral angle data
-- Success/failure status
+- Python with specific libraries installed
+- Video files from the experiment
+- NWB data files
+- DeepLabCut tracking data
 
-## Features
+## Getting Help
 
-### Video Processing
-- Frame extraction from specific trial periods
-- LED visualization
-- Integration with DLC tracking data
+If you encounter issues:
+1. Check that all files are present
+2. Look for error messages in the output
+3. Make sure file paths are correct
+4. Verify that video files are not corrupted
 
-### Angle Calculations
-- Mouse heading calculations
-- Port angle calibration
-- Relative angle computations
-
-### Data Integration
-- Synchronization of video frames with trial data
-- Integration of DLC coordinates
-- Sensor interaction mapping
-
-## Error Handling
-The script includes comprehensive error handling for:
-- File loading failures
-- Video processing errors
-- Data synchronization issues
-- Missing or corrupted data
-
-## Output
-- Processed trial data
-- Annotated videos
-- Behavioral metrics
-- Angular measurements
-
-## Object Structure
-
-### Session Object Structure
-```
-Session
-├── Attributes
-│   ├── session_dict            # Original session dictionary
-│   ├── session_directory       # Path to session directory
-│   ├── session_ID             # Session identifier
-│   ├── portable               # Boolean flag for portable setup
-│   ├── nwb_file_path         # Path to NWB file
-│   ├── DLC_coords_path       # Path to DLC coordinates CSV
-│   ├── last_timestamp        # Last timestamp in session
-│   ├── phase                 # Experimental phase
-│   ├── rig_id               # Experimental rig identifier
-│   ├── session_video        # Path to behavior video
-│   ├── video_timestamps     # Array of video frame timestamps
-│   ├── trials              # List of trial dictionaries
-│   ├── port_angles         # List of calibrated port angles
-│   └── port_coordinates    # List of port coordinate tuples
-│
-├── Methods
-│   ├── load_data()                    # Loads session data from NWB file
-│   ├── add_DLC_coords_to_nwb()        # Adds DLC coordinates to NWB file
-│   ├── frametime_to_index()           # Converts frame times to indices
-│   ├── add_video_data_to_trials()     # Adds video data to trial objects
-│   ├── add_angle_data()               # Adds angle calculations to trials
-│   ├── find_angles()                  # Calculates angles for a trial
-│   ├── draw_LEDs()                    # Visualizes LED positions
-│   ├── find_file()                    # Utility for finding files
-│   ├── find_dir()                     # Utility for finding directories
-│   ├── is_number()                    # Utility for number validation
-│   └── calibrate_port_angles()        # Calibrates port angle positions
-```
-
-### Trial Dictionary Structure
-```
-Trial Dictionary
-├── Basic Trial Info
-│   ├── trial_no               # Trial number in sequence
-│   ├── phase                  # Experimental phase
-│   ├── correct_port           # Target port number (1-6 or 'audio-1')
-│   ├── cue_start             # Timestamp of cue start
-│   └── cue_end               # Timestamp of cue end
-│
-├── Sensor Data
-│   ├── sensor_touches        # List of all sensor interactions
-│   │   └── [For each touch]
-│   │       ├── sensor_touched    # Sensor ID
-│   │       ├── sensor_start      # Touch start time
-│   │       └── sensor_end        # Touch end time
-│   │
-│   ├── next_sensor           # First sensor interaction
-│   │   ├── sensor_touched    # Sensor ID
-│   │   ├── sensor_start      # Touch start time
-│   │   └── sensor_end        # Touch end time
-│   │
-│   └── success              # Boolean for correct port touch
-│
-├── Video Data
-│   ├── video_frames         # List of relevant frame indices
-│   └── DLC_data            # DataFrame of DLC tracking data
-│       ├── timestamps      # Frame timestamps
-│       └── [For each body part]
-│           ├── x           # X coordinate
-│           ├── y           # Y coordinate
-│           └── likelihood  # Confidence score
-│
-├── Angle Data
-│   └── turn_data
-│       ├── bearing              # Mouse heading angle
-│       ├── port_position        # Target port coordinates
-│       ├── midpoint            # Mouse position coordinates
-│       ├── cue_presentation_angle  # Angle to target from heading
-│       └── port_touched_angle      # Angle to touched port
-│
-└── Phase-Specific Data
-    ├── catch                # Boolean for catch trials (Phase 10)
-    └── go_cue               # Go cue timestamp (Phase 9c)
-```
-
-## Notes
-- The script is designed for specific experimental setups with 6 ports
-- Phase-specific processing is implemented
-- Supports multiple experimental protocols
-- Handles both audio and visual cues
-
-## Contributing
-When contributing to this project:
-1. Document any new features or modifications
-2. Maintain consistent error handling
-3. Update tests for new functionality
-4. Follow the existing code structure
-
-## Limitations
-- Specific to certain experimental setups
-- Requires specific NWB file structure
-- Video processing can be memory-intensive
-- Dependent on correct DLC tracking data
-
-## Troubleshooting
-Common issues and solutions:
-- Video frame misalignment: Check frame indexing
-- DLC data missing: Verify CSV file format
-- NWB file errors: Confirm file structure
-- Angle calculation issues: Verify port calibration
+Remember: This script is designed to be robust and will try to tell you what's wrong if something fails.
