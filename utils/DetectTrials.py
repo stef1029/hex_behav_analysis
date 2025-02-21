@@ -212,7 +212,7 @@ class DetectTrials:
                     end = self.last_timestamp  # Default to last timestamp if no subsequent trial meets the criteria
 
                     for k in range(j + 1, len(trials)):
-                        if trials[k]['cue_start'] > trial['cue_end']:
+                        if trials[k]['cue_start'] > trial['cue_start']:
                             end = trials[k]['cue_start']
                             break
                         
@@ -236,7 +236,10 @@ class DetectTrials:
             # sort sensor touches in each trial by sensor start time:
             for trial in trials:
                 trial["sensor_touches"].sort(key=lambda touch: touch["sensor_start"])
-                trial["next_sensor"] = trial["sensor_touches"][0] if len(trial["sensor_touches"]) > 0 else {}
+                trial["next_sensor"] = next(
+                    (sensor for sensor in trial["sensor_touches"] if sensor["sensor_start"] > trial["cue_start"]),
+                    {}
+                )
                 if trial["next_sensor"] != {}:
                     trial["success"] = True if trial["next_sensor"]["sensor_touched"][-1] == trial["correct_port"] else False
                 else:
