@@ -215,9 +215,18 @@ class Process_Raw_Behaviour_Data:
         for i, pulse in enumerate(self.camera_pulses):
             self.pulse_times[i] = pulse
 
+        # if len(self.camera_pulses) < self.frame_IDs[-1]:
+        #     print(f"Pulses: {len(self.camera_pulses)}, Frame IDs: {self.frame_IDs[-1]}")
+        #     raise Exception("Error: Number of camera pulses is less than the number of frame IDs. Check data.")
+        
         if len(self.camera_pulses) < self.frame_IDs[-1]:
-            print(f"Pulses: {len(self.camera_pulses)}, Frame IDs: {self.frame_IDs[-1]}")
-            raise Exception("Error: Number of camera pulses is less than the number of frame IDs. Check data.")
+            new_max_frame_id = len(self.camera_pulses) - 1
+            truncated_frame_ids = [f for f in self.frame_IDs if f <= new_max_frame_id]
+            self.frame_IDs = truncated_frame_ids
+            print(
+                f"Warning: Only {len(self.camera_pulses)} camera pulses recorded, "
+                f"so truncating frame IDs to {len(self.frame_IDs)}."
+            )
 
         frame_ID = 0
         for frame_ID in self.frame_IDs:
@@ -259,7 +268,10 @@ class Process_Raw_Behaviour_Data:
             scales_timestamps = np.array(h5f['timestamps'])
 
         # Determine the type of scales based on the logs
-        scales_type = 'wired' if len(scales_logs[0]) == 3 else 'wireless'
+        try:
+            scales_type = 'wired' if len(scales_logs[0]) == 3 else 'wireless'
+        except IndexError:
+            raise Exception("Error: No scales data found in sendkey logs. Processing aborted.")
 
         # Initialize the scales_data dictionary with consistent keys
         self.scales_data = {
@@ -585,7 +597,7 @@ def main_MP():
 
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"Z:\debug_vids")
+    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
 
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
@@ -605,14 +617,14 @@ def main_MP():
     logger.addHandler(console_handler)
     # --------------------------
 
-    Cohort = Cohort_folder(cohort_directory, multi = False, plot=False, OEAB_legacy = False)
+    Cohort = Cohort_folder(cohort_directory, multi = True, plot=False, OEAB_legacy = False)
 
     directory_info = Cohort.cohort
 
     sessions_to_process = []
     num_sessions = 0
 
-    refresh = True
+    refresh = False
     
     for mouse in directory_info["mice"]:
         for session in directory_info["mice"][mouse]["sessions"]:

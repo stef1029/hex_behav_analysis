@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-import traceback
 from datetime import datetime
 import numpy as np
 import h5py
@@ -8,7 +7,7 @@ from pynwb import NWBHDF5IO
 
 # For color-coded console output
 import colorama
-from colorama import Fore, Back, Style
+from colorama import Fore, Style
 colorama.init(autoreset=True)
 
 import cv2 as cv
@@ -30,12 +29,12 @@ class Colors:
     HIGHLIGHT = Fore.MAGENTA
     
 def print_header(text):
-    """Print a formatted header"""
+    """Print a formatted header."""
     print(f"\n{Colors.HEADER}{text}")
     print(f"{Colors.HEADER}{'=' * len(text)}{Style.RESET_ALL}")
 
 def print_status(category, value, threshold=None, is_good=None):
-    """Print a status line with appropriate coloring"""
+    """Print a status line with appropriate coloring."""
     if is_good is None and threshold is not None:
         is_good = value <= threshold
     
@@ -88,7 +87,7 @@ def count_pulse_anomalies(signal, timestamps, threshold=0.5, min_ratio=0.5, debu
         if ratio < min_ratio:
             too_close_count += 1
             pulse_time = timestamps[edges[i]]
-            too_close_locations.append((pulse_time, ratio))
+            too_close_locations.append((float(pulse_time), float(ratio)))
             
             if debug:
                 print(f"    {Colors.WARNING}Pulses too close at t={pulse_time:.4f}s "
@@ -103,7 +102,7 @@ def check_early_pulses(signal, timestamps, threshold=0.5, min_start_delay=0.027)
         return None
     
     first_pulse_time = timestamps[edges[0]]
-    return first_pulse_time < min_start_delay, first_pulse_time
+    return first_pulse_time < min_start_delay, float(first_pulse_time)
 
 def check_late_pulses(signal, timestamps, threshold=0.5, min_end_delay=0.1):
     """Check if the last detected pulse ends too early before the end of recording."""
@@ -114,7 +113,7 @@ def check_late_pulses(signal, timestamps, threshold=0.5, min_end_delay=0.1):
     last_pulse_time = timestamps[edges[-1]]
     recording_end_time = timestamps[-1]
     end_delay = recording_end_time - last_pulse_time
-    return end_delay < min_end_delay, end_delay
+    return end_delay < min_end_delay, float(end_delay)
 
 def check_for_crash_pattern(session_dir):
     """
@@ -139,10 +138,12 @@ def check_for_crash_pattern(session_dir):
         total_frames = len(frame_ids)
         
         # Check if total frames is a multiple of 200
-        is_multiple_of_200 = total_frames % 200 == 0
+        is_multiple_of_200 = (total_frames % 200 == 0)
         
-        details = (f"Total frames: {total_frames}" + 
-                  f" (multiple of 200: {is_multiple_of_200})")
+        details = (
+            f"Total frames: {total_frames}"
+            f" (multiple of 200: {is_multiple_of_200})"
+        )
         
         return is_multiple_of_200, total_frames, details
             
@@ -150,8 +151,8 @@ def check_for_crash_pattern(session_dir):
         return False, None, f"Error reading Tracker_data.json: {str(e)}"
 
 def analyze_session_pulses(h5_path, nwb_path, session_dir, camera_channel_name="CAMERA", threshold=0.5, 
-                         min_ratio=0.5, debug=False):
-    """Analyze pulse data for a single session"""
+                           min_ratio=0.5, debug=False):
+    """Analyze pulse data for a single session."""
     results = {
         'status': 'success',
         'messages': [],
@@ -256,10 +257,19 @@ def save_problem_sessions(problem_sessions, output_file):
                 f.write("-" * 50 + "\n")
 
 def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", threshold=0.5, 
-                                    min_ratio=0.5, debug=False):
-    """Analyze pulse anomalies across the entire cohort."""
+                                      min_ratio=0.5, debug=False):
+    """Analyze pulse anomalies across the entire cohort and produce final summary."""
     problem_sessions = []  # List to store sessions with issues
     cohort_dict = cohort_obj.cohort
+    
+    # Counters to produce final summary
+    summary_counters = {
+        'total_sessions': 0,    # total valid sessions (with h5 to analyze)
+        'crashes': 0,
+        'truncated_starts': 0,  # early pulses
+        'truncated_ends': 0,    # late pulses
+        'both_truncated': 0
+    }
     
     for mouse_id, mouse_data in cohort_dict["mice"].items():
         for session_id, session_info in mouse_data["sessions"].items():
@@ -272,8 +282,11 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
             
             if not h5_path or h5_path == "None":
                 print(f"{Colors.WARNING}  No valid ArduinoDAQ.h5 file found. Skipping.{Style.RESET_ALL}")
-                continue
-                
+                continue  # Skip to next session
+            
+            # We have a valid H5 path, so increment total_sessions
+            summary_counters['total_sessions'] += 1
+            
             # Analyze session
             results = analyze_session_pulses(
                 h5_path, nwb_path, session_dir, camera_channel_name, threshold, min_ratio, debug
@@ -282,7 +295,7 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
             if results['status'] == 'error':
                 print(f"{Colors.ERROR}  Analysis failed: {', '.join(results['messages'])}{Style.RESET_ALL}")
                 continue
-                
+            
             # Print results
             data = results['data']
             print(f"{Colors.INFO}  File: {Path(h5_path).name}")
@@ -293,7 +306,6 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
             
             if data['early_pulse']:
                 print(f"  {Colors.WARNING}WARNING: First pulse too early (t={data['first_pulse_time']*1000:.1f}ms)")
-                
             if data['late_pulse']:
                 print(f"  {Colors.WARNING}WARNING: Last pulse too close to end (delay={data['end_delay']*1000:.1f}ms)")
             
@@ -319,10 +331,46 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
                 data['missed_pulses'] > 0 or 
                 data['too_close_pulses'] > 0 or 
                 data['early_pulse'] or 
-                data['late_pulse'] or 
+                data['late_pulse'] or
                 results['status'] == 'error' or
                 results['crash_info']['is_crash_pattern']
             )
+            
+            # Update summary counters if appropriate
+            if results['crash_info']['is_crash_pattern']:
+                summary_counters['crashes'] += 1
+            if data['early_pulse']:
+                summary_counters['truncated_starts'] += 1
+            if data['late_pulse']:
+                summary_counters['truncated_ends'] += 1
+            if data['early_pulse'] and data['late_pulse']:
+                summary_counters['both_truncated'] += 1
+            
+            # If truncated start, create a subdirectory and store a JSON file with session data
+            if data['early_pulse']:
+                report_dir = session_dir / "truncated_start_report"
+                report_dir.mkdir(exist_ok=True)  # Make directory if it doesn't exist
+                
+                # Build the JSON report data
+                report_data = {
+                    "mouse_id": mouse_id,
+                    "session_id": session_id,
+                    "h5_path": str(h5_path),
+                    "truncated_start": True,
+                    "first_pulse_time_ms": data['first_pulse_time'] * 1000 if data['first_pulse_time'] else None,
+                    "missed_pulses": data['missed_pulses'],
+                    "too_close_pulses": data['too_close_pulses'],
+                    "too_close_locations": data['close_locations'],
+                    "late_pulse_detected": bool(data['late_pulse']),
+                    "crash_detected": results['crash_info']['is_crash_pattern'],
+                    "crash_details": results['crash_info']['details'],
+                    "messages": results['messages']
+                }
+                
+                # Save the JSON file
+                report_file = report_dir / "truncated_start_info.json"
+                with open(report_file, "w") as f:
+                    json.dump(report_data, f, indent=4)
             
             # If there were any issues, add to problem sessions list
             if has_issues:
@@ -347,10 +395,18 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
         output_file = Path(cohort_obj.cohort_directory) / "problem_sessions.txt"
         save_problem_sessions(problem_sessions, output_file)
         print(f"\n{Colors.HIGHLIGHT}Problem sessions report saved to: {output_file}{Style.RESET_ALL}")
+    
+    # Final summary report
+    print_header("FINAL SUMMARY REPORT")
+    print(f"{Colors.INFO}Total sessions analyzed: {summary_counters['total_sessions']}")
+    print(f"{Colors.INFO}Sessions with crash pattern: {summary_counters['crashes']}")
+    print(f"{Colors.INFO}Sessions with truncated start (early pulse): {summary_counters['truncated_starts']}")
+    print(f"{Colors.INFO}Sessions with truncated end (late pulse): {summary_counters['truncated_ends']}")
+    print(f"{Colors.INFO}Sessions with both truncated start and end: {summary_counters['both_truncated']}")
 
 def main():
     # Path to cohort folder
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"
+    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
 
     # Create or load cohort info
     print_header("Initializing Cohort Analysis")
