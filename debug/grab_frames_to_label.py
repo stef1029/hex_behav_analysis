@@ -98,7 +98,7 @@ def main():
                 frame_count = get_frame_count_from_json(sdict["directory"])
                 
                 if frame_count < 18000:
-                    print(f"Skipping session {session_id} - only has {frame_count} frames (< 18000)")
+                    print(f"Skipping session {session_id} - only has {frame_count} frames (< 18000/ 10mins)")
                     continue
                 
                 # If the frame count is sufficient, process the video

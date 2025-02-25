@@ -11,9 +11,9 @@ from debug_cohort_folder import Cohort_folder
 def transfer_tsr_only(cohort_dir, destination_dir):
     """
     1) Builds a Cohort_folder to read all session metadata.
-    2) For each session that has a 'truncated_start_report' folder, copies
-       ONLY that folder (and its contents) to the destination directory, preserving
-       the session's subpath structure.
+    2) For each session that has a 'truncated_start_report' folder, checks if it contains
+       PNG files, and if so, copies ONLY that folder (and its contents) to the destination 
+       directory, preserving the session's subpath structure.
     """
 
     # 1) Instantiate the cohort
@@ -30,13 +30,34 @@ def transfer_tsr_only(cohort_dir, destination_dir):
     destination_path = Path(destination_dir).resolve()
     destination_path.mkdir(parents=True, exist_ok=True)
 
+    # Track statistics
+    total_sessions = 0
+    sessions_with_tsr = 0
+    sessions_with_png = 0
+
     # 2) Iterate over all mice and sessions
     for mouse_id, mouse_data in cohort.cohort["mice"].items():
         for session_id, sdict in mouse_data["sessions"].items():
+            total_sessions += 1
+            
             if sdict.get("has_truncated_start_report", False):
+                sessions_with_tsr += 1
                 # Found a session that has truncated_start_report
                 session_folder = Path(sdict["directory"])
                 tsr_source = session_folder / "truncated_start_report"
+
+                # Check if the truncated_start_report folder contains PNG files
+                contains_png = False
+                if tsr_source.is_dir():
+                    for file_path in tsr_source.glob('**/*.png'):
+                        contains_png = True
+                        break
+                
+                if not contains_png:
+                    print(f"No PNG files found in {tsr_source}, skipping.")
+                    continue
+                
+                sessions_with_png += 1
 
                 # Build the corresponding subpath in the destination
                 # so that we preserve the structure from the cohort root.
@@ -66,6 +87,13 @@ def transfer_tsr_only(cohort_dir, destination_dir):
                         print(f"Error copying {tsr_source} -> {tsr_dest}: {str(e)}")
                 else:
                     print(f"Truncated folder not found or not a directory at {tsr_source}, skipping.")
+
+    # Print summary
+    print(f"\nSummary:")
+    print(f"Total sessions: {total_sessions}")
+    print(f"Sessions with truncated_start_report: {sessions_with_tsr}")
+    print(f"Sessions with PNG files: {sessions_with_png}")
+    print(f"Sessions copied: {sessions_with_png}")
 
 def main():
     """
