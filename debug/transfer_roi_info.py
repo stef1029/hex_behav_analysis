@@ -118,7 +118,7 @@ def main():
         python transfer_roi_back.py /data/TruncatedReportsOnly /data/OriginalCohort
     """
     # Replace these with your actual directories
-    source_dir = r"Z:\debug_vids\Lynn_label_frames"
+    source_dir = r"/cephfs2/srogers/debug_vids/Lynn_label_frames"
     original_cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
     
     # You can uncomment the following to use command-line arguments instead
