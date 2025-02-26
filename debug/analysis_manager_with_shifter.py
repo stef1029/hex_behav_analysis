@@ -165,7 +165,7 @@ class Process_Raw_Behaviour_Data:
         for key in list(self.frame_times.keys()):
             if not isinstance(key, str) or key.isdigit():
                 # Apply shift only to numeric frame time entries
-                self.frame_times[key] -= lag
+                self.frame_times[key] += lag
         
         # Save a signal file indicating the shift
         shift_info = {
@@ -417,7 +417,8 @@ class Process_Raw_Behaviour_Data:
 def main_MP():
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
+    # cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
+    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/November_cohort")
 
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
@@ -461,6 +462,8 @@ def main_MP():
     
     # Option to only process sessions with ROI data
     only_process_roi_sessions = True
+
+    session_to_process = "250131_150005_wtjp273-3f"
     
     for mouse in directory_info["mice"]:
         for session in directory_info["mice"][mouse]["sessions"]:
@@ -507,6 +510,10 @@ def main_MP():
     for session in sessions_to_process:
         session_id = session.get('session_id')
         print(f"\n\nProcessing {session.get('directory')}...")
+
+        if session_to_process and session_id != session_to_process:
+            print(f"Skipping session {session_id}")
+            continue
         
         # Check if this session has ROI data before processing
         session_dir = Path(session.get('directory'))
@@ -520,12 +527,12 @@ def main_MP():
         else:
             alignment_logger.info(f"Starting processing of session {session_id} WITHOUT ROI alignment")
         
-        # try:
-        #     Process_Raw_Behaviour_Data(session, logger)
-        #     alignment_logger.info(f"Successfully processed session {session_id}")
-        # except Exception as e:
-        #     alignment_logger.error(f"Failed to process session {session_id}: {str(e)}")
-        #     traceback.print_exc()
+        try:
+            Process_Raw_Behaviour_Data(session, logger)
+            alignment_logger.info(f"Successfully processed session {session_id}")
+        except Exception as e:
+            alignment_logger.error(f"Failed to process session {session_id}: {str(e)}")
+            traceback.print_exc()
 
     # Refresh directory info to see what was processed
     directory_info = Cohort_folder(cohort_directory, multi=False, plot=False, OEAB_legacy=False).cohort

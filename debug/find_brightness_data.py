@@ -174,7 +174,7 @@ def main():
     Modify these values directly instead of using command line arguments.
     """
     # Set your parameters here
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"  # Path to your cohort directory
+    cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"  # Path to your cohort directory
     num_processes = 8                                            # Number of processes for each video
     specific_session = None                                      # Set to a session ID to process only that session
     
