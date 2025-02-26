@@ -81,7 +81,7 @@ def main():
     Usage:
         python clear_files.py
     """
-    cohort_directory = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    cohort_directory = r"Z:\debug_vids\Lynn_label_frames"
     
     # Ask for file type selection
     print("Select file type to clear:")
