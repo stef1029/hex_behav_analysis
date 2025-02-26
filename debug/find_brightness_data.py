@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 import sys
 import json
@@ -31,27 +29,18 @@ def find_video_file(session_folder):
 
 def validate_roi_file(roi_path):
     """
-    Checks if the ROI file contains all required fields.
+    Checks if the ROI file contains the required x,y coordinates.
     Returns True if valid, False otherwise.
     """
     try:
         with open(roi_path, "r") as f:
             roi_data = json.load(f)
             
-        # Check for required fields
+        # Check for required fields - only x and y are needed
         required_fields = ["x", "y"]
         
-        # If the JSON only contains point data (x, y), add default width and height
         if all(field in roi_data for field in required_fields):
-            if "w" not in roi_data:
-                roi_data["w"] = 50  # Default width
-            if "h" not in roi_data:
-                roi_data["h"] = 50  # Default height
-                
-            # Save the modified ROI data back to file
-            with open(roi_path, "w") as f:
-                json.dump(roi_data, f, indent=2)
-            
+            # Don't add width and height - we're analyzing single pixels now
             return True
         else:
             print(f"ROI file {roi_path} missing required fields {required_fields}")
@@ -61,7 +50,7 @@ def validate_roi_file(roi_path):
         print(f"Error validating ROI file {roi_path}: {e}")
         return False
 
-def process_session(session_folder, session_id, threshold=150.0, num_processes=None):
+def process_session(session_folder, session_id, num_processes=None):
     """
     Process a single session - find video, validate ROI, run analysis.
     Returns (session_id, success, error_message)
@@ -86,32 +75,31 @@ def process_session(session_folder, session_id, threshold=150.0, num_processes=N
             return (session_id, False, "No video file found in session folder")
         
         # Run the analysis
-        analyze_video_with_roi_parallel(
+        num_frames = analyze_video_with_roi_parallel(
             session_folder=str(session_folder),
             session_id=session_id,
             video_path=video_path,
-            brightness_threshold=threshold,
             num_processes=num_processes
         )
         
         # Check if output file was created
-        output_path = truncated_folder / f"{session_id}_touch_timestamps.txt"
+        output_path = truncated_folder / f"{session_id}_brightness_data.csv"
         if output_path.is_file():
-            return (session_id, True, f"Analysis complete, found {sum(1 for _ in open(output_path))} timestamps")
+            return (session_id, True, f"Analysis complete, processed {num_frames} frames")
         else:
             return (session_id, False, "Analysis ran but no output file was created")
             
     except Exception as e:
         return (session_id, False, f"Error: {str(e)}")
 
-def batch_analyze_cohort(cohort_dir, threshold=150.0, num_processes=None, specific_session=None):
+def batch_analyze_cohort(cohort_dir, num_processes=None, specific_session=None):
     """
     Main function to analyze all sessions in a cohort with ROI data.
     Processes one video at a time, but uses parallelism within each video.
+    For each video, extracts brightness data from the single pixel at ROI coordinates.
     
     Args:
         cohort_dir: Path to the cohort directory
-        threshold: Brightness threshold to use for analysis
         num_processes: Number of processes to use for each video (None = auto)
         specific_session: If provided, only analyze this specific session ID
     """
@@ -157,7 +145,7 @@ def batch_analyze_cohort(cohort_dir, threshold=150.0, num_processes=None, specif
         
         try:
             # Process each session one at a time (but with internal parallelism)
-            result = process_session(session_folder, session_id, threshold, num_processes)
+            result = process_session(session_folder, session_id, num_processes)
             results.append(result)
             
             # Log result
@@ -187,22 +175,15 @@ def main():
     """
     # Set your parameters here
     cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"  # Path to your cohort directory
-    threshold = 150.0                                            # Brightness threshold
     num_processes = 8                                            # Number of processes for each video
-    specific_session = "250128_110948_wtjp271-5d"                                      # Set to a session ID to process only that session
+    specific_session = None                                      # Set to a session ID to process only that session
     
     # Run the analysis
     batch_analyze_cohort(
         cohort_dir=cohort_dir,
-        threshold=threshold,
         num_processes=num_processes,
         specific_session=specific_session
     )
 
 if __name__ == "__main__":
-    # Example usage without arguments:
-    # cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
-    # batch_analyze_cohort(cohort_dir)
-    
-    # Or call with command line arguments:
     main()

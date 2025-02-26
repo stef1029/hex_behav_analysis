@@ -78,7 +78,8 @@ def main():
     4) Saves the extracted frame to [session_folder]/truncated_start_report/<session_id>_middle_frame.png.
     """
 
-    cohort_directory = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    # cohort_directory = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    cohort_directory = r"/cephfs2/dwelch/Behaviour/November_cohort"
 
     # Instantiate the cohort
     cohort = Cohort_folder(
@@ -90,9 +91,13 @@ def main():
         use_existing_cohort_info=False
     )
 
+    # session_to_process = "250131_150005_wtjp273-3f"
+
     # Now iterate over all mice and sessions
     for mouse_id, mouse_data in cohort.cohort["mice"].items():
         for session_id, sdict in mouse_data["sessions"].items():
+            # if session_id != session_to_process:
+            #     continue
             if sdict.get("has_truncated_start_report", False):
                 # Check frame count in the JSON file
                 frame_count = get_frame_count_from_json(sdict["directory"])

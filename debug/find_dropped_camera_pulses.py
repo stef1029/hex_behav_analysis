@@ -406,7 +406,8 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
 
 def main():
     # Path to cohort folder
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    # cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"
 
     # Create or load cohort info
     print_header("Initializing Cohort Analysis")
