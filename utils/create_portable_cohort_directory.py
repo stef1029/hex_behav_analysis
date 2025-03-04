@@ -129,8 +129,9 @@ def main():
         logging.info("Starting processing script")
         
         # Set your source and destination directories here
-        source_directory = Path(r'/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE')
-        destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/2501_Lynn_EXCITE_portable')
+        # source_directory = Path(r'/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE')
+        source_directory = Path(r'/cephfs2/dwelch/Behaviour/November_cohort')
+        destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/Dan_november_cohort_portable')
 
         # Log the directories being used
         logging.info(f"Source directory: {source_directory}")

@@ -174,16 +174,21 @@ def main():
     Modify these values directly instead of using command line arguments.
     """
     # Set your parameters here
+    cohorts = []
     cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"  # Path to your cohort directory
-    num_processes = 8                                            # Number of processes for each video
+    cohorts.append(cohort_dir)
+    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"  # Path to your cohort directory
+    cohorts.append(cohort_dir)
+    num_processes = os.cpu_count()                                        # Number of processes for each video
     specific_session = None                                      # Set to a session ID to process only that session
     
     # Run the analysis
-    batch_analyze_cohort(
-        cohort_dir=cohort_dir,
-        num_processes=num_processes,
-        specific_session=specific_session
-    )
+    for cohort in cohorts:
+        batch_analyze_cohort(
+            cohort_dir=cohort,
+            num_processes=num_processes,
+            specific_session=specific_session
+        )
 
 if __name__ == "__main__":
     main()
