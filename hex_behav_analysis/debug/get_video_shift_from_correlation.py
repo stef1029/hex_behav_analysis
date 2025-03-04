@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
-from pynwb import NWBHDF5IO
+import h5py
+import json
 import warnings
 import traceback
 
@@ -39,15 +40,6 @@ def get_brightness_sensor_alignment(session_dir, sensor_name="SENSOR1", max_lag_
             print(f"Session directory does not exist: {session_dir}")
         return None
     
-    # Find NWB file
-    nwb_files = [f for f in os.listdir(session_dir) if f.endswith(".nwb")]
-    if not nwb_files:
-        if verbose:
-            print(f"No NWB file found in session directory: {session_dir}")
-        return None
-    
-    nwb_file = os.path.join(session_dir, nwb_files[0])
-    
     # Find brightness data file
     truncated_start_dir = os.path.join(session_dir, "truncated_start_report")
     if not os.path.exists(truncated_start_dir):
@@ -70,16 +62,47 @@ def get_brightness_sensor_alignment(session_dir, sensor_name="SENSOR1", max_lag_
     
     brightness_file = os.path.join(truncated_start_dir, brightness_files[0])
     
+    # Find Arduino DAQ file
+    arduino_daq_files = [f for f in os.listdir(session_dir) if f.endswith("-ArduinoDAQ.h5")]
+    if not arduino_daq_files:
+        # Try with different naming convention
+        arduino_daq_files = [f for f in os.listdir(session_dir) if f.endswith(".h5") and "ArduinoDAQ" in f]
+    
+    if not arduino_daq_files:
+        if verbose:
+            print(f"No Arduino DAQ h5 file found in: {session_dir}")
+        return None
+    
+    arduino_daq_file = os.path.join(session_dir, arduino_daq_files[0])
+    
+    # Find tracker data JSON file
+    tracker_data_files = [f for f in os.listdir(session_dir) if f.endswith("_Tracker_data.json")]
+    if not tracker_data_files:
+        if verbose:
+            print(f"No Tracker data JSON file found in: {session_dir}")
+        return None
+    
+    tracker_data_file = os.path.join(session_dir, tracker_data_files[0])
+    
     if verbose:
-        print(f"Found NWB file: {nwb_file}")
+        print(f"Found Arduino DAQ file: {arduino_daq_file}")
+        print(f"Found tracker data file: {tracker_data_file}")
         print(f"Found brightness file: {brightness_file}")
     
-    # Extract data from NWB
-    sensor_df, video_timestamps_df = extract_data_from_nwb(nwb_file, sensor_name, verbose=verbose)
+    # Extract camera frame times from Arduino DAQ and tracker data
+    frame_times, video_timestamps_df = extract_camera_frame_times(arduino_daq_file, tracker_data_file, verbose)
     
-    if sensor_df is None or sensor_df.empty or video_timestamps_df is None or video_timestamps_df.empty:
+    if frame_times is None or video_timestamps_df is None or video_timestamps_df.empty:
         if verbose:
-            print("Failed to extract required data from NWB")
+            print("Failed to extract camera frame times")
+        return None
+    
+    # Extract sensor data from the Arduino DAQ file
+    sensor_df = extract_sensor_data_from_daq(arduino_daq_file, sensor_name, verbose)
+    
+    if sensor_df is None or sensor_df.empty:
+        if verbose:
+            print(f"Failed to extract {sensor_name} data from Arduino DAQ")
         return None
     
     # Perform alignment
@@ -95,73 +118,173 @@ def get_brightness_sensor_alignment(session_dir, sensor_name="SENSOR1", max_lag_
     return lag
 
 
-def extract_data_from_nwb(nwb_file_path, sensor_name="SENSOR1", verbose=False):
+def extract_camera_frame_times(arduino_daq_file, tracker_data_file, verbose=False):
     """
-    Extract both sensor data and video timestamps from NWB file.
+    Extract camera frame times from Arduino DAQ h5 file and tracker data JSON.
     
     Args:
-        nwb_file_path: Path to NWB file
-        sensor_name: Name of the sensor channel (default: "SENSOR1")
+        arduino_daq_file: Path to Arduino DAQ h5 file
+        tracker_data_file: Path to tracker data JSON file
         verbose: Whether to print detailed information
         
     Returns:
-        Tuple of (sensor_df, video_timestamps_df)
+        Tuple of (frame_times_dict, video_timestamps_df)
     """
     try:
-        with NWBHDF5IO(nwb_file_path, 'r') as io:
-            nwbfile = io.read()
+        # Load the Arduino DAQ h5 file
+        with h5py.File(arduino_daq_file, 'r') as h5f:
+            # First check the structure of the h5 file
+            if verbose:
+                print("HDF5 file structure:")
+                for key in h5f.keys():
+                    print(f"  - {key}")
+                    if isinstance(h5f[key], h5py.Group):
+                        for subkey in h5f[key].keys():
+                            print(f"    - {subkey}")
             
-            # 1. Extract sensor data
-            sensor_df = None
-            if sensor_name in nwbfile.acquisition:
-                sensor_data = nwbfile.acquisition[sensor_name]
-                
-                # Get sensor timestamps and intervals
-                sensor_timestamps = sensor_data.timestamps[:]
-                sensor_intervals = sensor_data.data[:]
-                
-                # Create dataframe with sensor events
-                sensor_df = pd.DataFrame({
-                    'timestamp': sensor_timestamps,
-                    'event': sensor_intervals
-                })
-                
-                if verbose:
-                    print(f"Extracted {len(sensor_timestamps)} sensor events from {sensor_name}")
+            # Extract camera data and timestamps
+            if 'channel_data' in h5f and 'CAMERA' in h5f['channel_data']:
+                camera_data = np.array(h5f['channel_data']['CAMERA'])
+                if 'timestamps' in h5f:
+                    timestamps = np.array(h5f['timestamps'])
+                else:
+                    if verbose:
+                        print("No timestamps found in h5 file")
+                    return None, None
             else:
                 if verbose:
-                    print(f"Sensor {sensor_name} not found in NWB file")
+                    print("Could not find CAMERA data in the expected structure")
+                return None, None
+        
+        # Detect low-to-high transitions (0 -> 1) in camera data
+        low_to_high_transitions = np.where((camera_data[:-1] == 0) & (camera_data[1:] == 1))[0]
+        
+        # Get the timestamps corresponding to these transitions
+        camera_pulses = timestamps[low_to_high_transitions + 1]  # Add 1 for the high point
+        
+        # Import tracker data JSON
+        with open(tracker_data_file, 'r') as f:
+            video_metadata = json.load(f)
+        
+        # Check if frame_IDs is a key
+        if "frame_IDs" in video_metadata:
+            frame_IDs = video_metadata["frame_IDs"]
+        else:
+            if verbose:
+                print("Error: No frame_IDs found in tracker_data.json")
+            return None, None
+        
+        # Create pulse_times dictionary
+        pulse_times = {i: pulse for i, pulse in enumerate(camera_pulses)}
+        
+        # Determine how many valid frames we can process
+        max_available_frame = min(len(camera_pulses) - 1, max(frame_IDs))
+        
+        # If we have fewer camera pulses than frame IDs, truncate the frame IDs
+        if max_available_frame < max(frame_IDs):
+            truncated_frame_ids = [f for f in frame_IDs if f <= max_available_frame]
+            frame_IDs = truncated_frame_ids
+            if verbose:
+                print(
+                    f"Warning: Only {len(camera_pulses)} camera pulses recorded, "
+                    f"so truncating frame IDs to {len(frame_IDs)}."
+                )
+        
+        # Create frame_times dictionary
+        frame_times = {}
+        for frame_ID in frame_IDs:
+            if frame_ID in pulse_times:
+                frame_times[frame_ID] = pulse_times[frame_ID]
+            elif frame_ID < len(pulse_times):
+                frame_times[frame_ID] = pulse_times[frame_ID]
+        
+        # Create DataFrame for video timestamps
+        video_timestamps_df = pd.DataFrame({
+            'frame': list(frame_times.keys()),
+            'timestamp': list(frame_times.values())
+        })
+        
+        if verbose:
+            print(f"Extracted {len(frame_times)} frame timestamps")
+        
+        return frame_times, video_timestamps_df
+        
+    except Exception as e:
+        if verbose:
+            print(f"Error extracting camera frame times: {str(e)}")
+            traceback.print_exc()
+        return None, None
+
+
+def extract_sensor_data_from_daq(arduino_daq_file, sensor_name="SENSOR1", verbose=False):
+    """
+    Extract sensor data from Arduino DAQ h5 file.
+    
+    Args:
+        arduino_daq_file: Path to Arduino DAQ h5 file
+        sensor_name: Name of the sensor channel
+        verbose: Whether to print detailed information
+        
+    Returns:
+        DataFrame with sensor data
+    """
+    try:
+        with h5py.File(arduino_daq_file, 'r') as h5f:
+            # Check if sensor channel exists in the expected structure
+            if 'channel_data' not in h5f or sensor_name not in h5f['channel_data']:
+                if verbose:
+                    print(f"Sensor {sensor_name} not found in Arduino DAQ file")
+                return None
             
-            # 2. Extract video frame timestamps
-            video_timestamps_df = None
-            video_timestamps = None
+            # Load sensor channel data
+            sensor_data = np.array(h5f['channel_data'][sensor_name])
             
-            # Try to find the behavior video in acquisitions
-            for acq_name in nwbfile.acquisition:
-                if 'video' in acq_name.lower() or 'behaviour' in acq_name.lower() or 'behavior' in acq_name.lower():
-                    video_series = nwbfile.acquisition[acq_name]
-                    if hasattr(video_series, 'timestamps'):
-                        video_timestamps = video_series.timestamps[:]
-                        if verbose:
-                            print(f"Found video timestamps in '{acq_name}' with {len(video_timestamps)} frames")
-                        
-                        # Create dataframe with frame numbers and timestamps
-                        video_timestamps_df = pd.DataFrame({
-                            'frame': np.arange(len(video_timestamps)),
-                            'timestamp': video_timestamps
-                        })
-                        break
-            
-            if video_timestamps_df is None and verbose:
-                print("No video timestamps found in NWB file")
+            # Load timestamps
+            if 'timestamps' not in h5f:
+                if verbose:
+                    print("No timestamps found in Arduino DAQ file")
+                return None
                 
-            return sensor_df, video_timestamps_df
+            timestamps = np.array(h5f['timestamps'])
+            
+            # Detect transitions in sensor data
+            # Start of nosepoke: 1->0 transition (active low)
+            # End of nosepoke: 0->1 transition
+            start_nosepoke = np.where((sensor_data[:-1] == 1) & (sensor_data[1:] == 0))[0]
+            end_nosepoke = np.where((sensor_data[:-1] == 0) & (sensor_data[1:] == 1))[0]
+            
+            # Create sensor events DataFrame
+            events = []
+            
+            # Add start events (-1 event value as in the original code)
+            for idx in start_nosepoke:
+                if idx + 1 < len(timestamps):
+                    events.append({
+                        'timestamp': timestamps[idx + 1],
+                        'event': -1  # -1 means start of nosepoke
+                    })
+            
+            # Add end events (1 event value as in the original code)
+            for idx in end_nosepoke:
+                if idx + 1 < len(timestamps):
+                    events.append({
+                        'timestamp': timestamps[idx + 1],
+                        'event': 1  # 1 means end of nosepoke
+                    })
+            
+            # Sort events by timestamp
+            sensor_df = pd.DataFrame(events).sort_values('timestamp').reset_index(drop=True)
+            
+            if verbose:
+                print(f"Extracted {len(sensor_df)} sensor events from {sensor_name}")
+            
+            return sensor_df
             
     except Exception as e:
         if verbose:
-            print(f"Error reading NWB file {nwb_file_path}: {str(e)}")
+            print(f"Error extracting sensor data: {str(e)}")
             traceback.print_exc()
-        return None, None
+        return None
 
 
 def convert_sensor_events_to_binary(sensor_df, time_grid):
@@ -252,7 +375,7 @@ def align_brightness_with_sensor(brightness_file, sensor_df, video_timestamps_df
         # 3. Check if we have the video timestamps
         if video_timestamps_df is None:
             if verbose:
-                print("No video timestamps available from NWB, can't proceed with alignment")
+                print("No video timestamps available, can't proceed with alignment")
             return None, 0
             
         # 4. Merge brightness data with video timestamps based on frame number
@@ -290,7 +413,7 @@ def align_brightness_with_sensor(brightness_file, sensor_df, video_timestamps_df
         
         # 6. Create binary brightness signal (1 when below threshold)
         # IMPORTANT: But INVERT the binary result (0→1, 1→0) to match sensor signal
-        merged_df['binary'] = 1 - (merged_df[brightness_col] < threshold).astype(int)
+        merged_df['binary'] = (merged_df[brightness_col] < threshold).astype(int)
         
         # 7. Create a uniform time grid for both signals
         # Find the overlapping time range
