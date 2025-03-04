@@ -1,11 +1,10 @@
 import cv2 as cv
 from pathlib import Path
 import multiprocessing as mp
-# from Scripts.DAQ_plot import DAQ_plot
 import numpy as np
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session_nwb import Session
 
 class Video_maker:
     def __init__(self, session):

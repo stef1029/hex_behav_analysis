@@ -20,8 +20,8 @@ import json
 import numpy as np
 import time
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session import Session
 
 cohort_directory = Path(r"/cephfs2/srogers/March_training")
 

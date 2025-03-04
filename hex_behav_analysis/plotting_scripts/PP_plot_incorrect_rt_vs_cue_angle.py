@@ -5,8 +5,8 @@ from datetime import datetime
 import math
 from statistics import mean, stdev
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session_nwb import Session
 
 def plot_incorrect_rt_vs_cue_angle_abs(
     sessions_list,

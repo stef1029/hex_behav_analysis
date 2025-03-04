@@ -3,8 +3,8 @@ from pathlib import Path
 import json
 import numpy as np
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session_nwb import Session
 
 cohort_directory = Path(r"/cephfs2/srogers/240207_Dans_data")
 

@@ -6,7 +6,7 @@ import cv2 as cv
 import math
 import numpy as np
 
-from utils.DAQ_plot import DAQ_plot
+from hex_behav_analysis.utils.DAQ_plot import DAQ_plot
 
 class Session:
     def __init__(self, session_dict):

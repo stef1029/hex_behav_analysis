@@ -1,8 +1,8 @@
-from utils.Session_nwb import Session
-from utils.Cohort_folder import Cohort_folder
 from pathlib import Path
 import traceback
 
+from hex_behav_analysis.utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 # Go through every session and print(sess.timestamps[0], sess.timestamps[-1]):
 
 cohort_directory = r"/cephfs2/srogers/March_training"

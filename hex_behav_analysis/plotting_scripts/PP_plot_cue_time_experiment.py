@@ -5,8 +5,8 @@ import numpy as np
 from collections import defaultdict
 from datetime import datetime
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session_nwb import Session
 
 def plot_performance_by_angle(sessions, 
                               cue_times,

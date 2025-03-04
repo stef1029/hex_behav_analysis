@@ -7,8 +7,8 @@ import numpy as np
 import pickle
 from pynwb import NWBHDF5IO, TimeSeries, ProcessingModule
 
-from utils.Cohort_folder import Cohort_folder
-from utils.DetectTrials import DetectTrials
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.DetectTrials import DetectTrials
 
 class Session:
     def __init__(self, session_dict, recalculate=False):

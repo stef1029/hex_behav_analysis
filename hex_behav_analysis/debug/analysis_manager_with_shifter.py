@@ -12,13 +12,13 @@ import h5py
 import traceback
 import logging
 
-from Preliminary_analysis_scripts.session_import import Session
-from Preliminary_analysis_scripts.process_ADC_recordings import process_ADC_Recordings
-from Preliminary_analysis_scripts.Full_arduinoDAQ_import import Arduino_DAQ_Import
+from hex_behav_analysis.Preliminary_analysis_scripts.session_import import Session
+from hex_behav_analysis.Preliminary_analysis_scripts.process_ADC_recordings import process_ADC_Recordings
+from hex_behav_analysis.Preliminary_analysis_scripts.Full_arduinoDAQ_import import Arduino_DAQ_Import
 # from Preliminary_analysis_scripts.deeplabcut_setup import DLC_setup
-from utils.DAQ_plot_ArduinoDAQ import DAQ_plot
-from utils.Cohort_folder import Cohort_folder
-from utils.DAQ_to_nwb_ArduinoDAQ import *
+from hex_behav_analysis.utils.DAQ_plot_ArduinoDAQ import DAQ_plot
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.DAQ_to_nwb_ArduinoDAQ import *
 from get_video_shift_from_correlation import get_brightness_sensor_alignment
 
 class Process_Raw_Behaviour_Data:

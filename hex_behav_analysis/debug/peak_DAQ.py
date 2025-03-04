@@ -5,7 +5,7 @@ import numpy as np
 import argparse
 import os
 
-from Preliminary_analysis_scripts.Full_arduinoDAQ_import import Arduino_DAQ_Import
+from hex_behav_analysis.Preliminary_analysis_scripts.Full_arduinoDAQ_import import Arduino_DAQ_Import
 
 class DAQViewer:
     def __init__(self, daq_file_path):

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from pynwb import NWBHDF5IO
 
-from utils.plot_graphical_cohort_info import graphical_cohort_info
+from hex_behav_analysis.utils.plot_graphical_cohort_info import graphical_cohort_info
 
 
 class Cohort_folder:

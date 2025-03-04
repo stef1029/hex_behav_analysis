@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session_nwb import Session
 
 def plot_learning(session):
     

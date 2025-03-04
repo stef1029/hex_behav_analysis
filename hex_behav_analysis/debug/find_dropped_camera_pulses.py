@@ -16,8 +16,8 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 import re
 
-from utils.plot_graphical_cohort_info import graphical_cohort_info
-from utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.plot_graphical_cohort_info import graphical_cohort_info
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 
 # Color scheme for output
 class Colors:

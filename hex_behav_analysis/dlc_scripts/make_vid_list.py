@@ -1,6 +1,7 @@
 import sys
-from utils.Cohort_folder import Cohort_folder
 from pathlib import Path
+
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 
 def get_video_paths(cohort_info, mode):
     videos = []

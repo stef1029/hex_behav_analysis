@@ -1,5 +1,5 @@
 from typing import List, Dict
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Session_nwb import Session
 
 class SessionManager:
     def __init__(self, cohort):

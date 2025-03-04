@@ -4,8 +4,8 @@ import numpy as np
 from datetime import datetime
 import matplotlib.cm as cm
 
-from utils.Cohort_folder import Cohort_folder
-from utils.Session_nwb import Session
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Session_nwb import Session
 
 # Define your colors
 colors = {
