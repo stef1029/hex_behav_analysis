@@ -175,8 +175,8 @@ def main():
     """
     # Set your parameters here
     cohorts = []
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"  # Path to your cohort directory
-    cohorts.append(cohort_dir)
+    # cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"  # Path to your cohort directory
+    # cohorts.append(cohort_dir)
     cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"  # Path to your cohort directory
     cohorts.append(cohort_dir)
     num_processes = os.cpu_count()                                        # Number of processes for each video

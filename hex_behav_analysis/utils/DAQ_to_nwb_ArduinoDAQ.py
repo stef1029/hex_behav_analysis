@@ -342,6 +342,7 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
     # ---------------------------------------------------------------------
     # (F) Video data (potentially already shifted if pulses were missing)
     # ---------------------------------------------------------------------
+    print(f"  [VIDEO INFO] Adding video data from {video_directory}")
     if not video_directory.exists():
         raise FileNotFoundError(f'Video file {video_directory} not found')
 
@@ -349,7 +350,7 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
     numeric_keys = [key for key in video_timestamps.keys() if str(key).isdigit()]
     sorted_keys = sorted(numeric_keys, key=lambda x: int(x))
     video_ts = np.array([video_timestamps[key] for key in sorted_keys], dtype=np.float64)
-
+    print(f"Adding video to nwb as: '{['./' + video_directory.name]}'")
     behaviour_video = ImageSeries(
         name='behaviour_video',
         external_file=['./' + video_directory.name],
