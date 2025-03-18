@@ -381,224 +381,9 @@ class Process_Raw_Behaviour_Data:
         if not dir_found:
             raise Exception(f"No OEAB directory found in {directory}")
 
-    def bmp_to_avi_MP(self, prefix, framerate = 30, num_processes = 8):
-        # Get all the bmp files in the folder
-        bmp_files = [f for f in os.listdir(self.data_folder_path) if f.endswith('.bmp') and f.startswith(prefix)]
-
-        # Sort the files by name
-        bmp_files.sort()
-
-        # Get the first file to use as a template for the video writer
-        first_file = cv.imread(os.path.join(self.data_folder_path, bmp_files[0]))
-        height, width, channels = first_file.shape
-        self.dims = (width, height)
-        self.FPS = framerate
-
-        temp_video_dir = self.data_folder_path / 'temp_videos'
-        os.makedirs(temp_video_dir, exist_ok=True)
-
-        # Divide your list of bmp frame files into chunks according to the number of available CPUs
-        chunk_size = len(bmp_files) // num_processes
-        chunks = [bmp_files[i:i + chunk_size] for i in range(0, len(bmp_files), chunk_size)]
-
-        # Use multiprocessing to process each chunk
-        with mp.Pool(num_processes) as p:
-            p.starmap(process_video_chunk_MP, [(chunks[i], i, temp_video_dir, self.FPS, self.dims, self.data_folder_path) for i in range(num_processes)])
-
-        # Concatenate all chunks into a single video
-        output_path = self.data_folder_path / f"{self.data_folder_path.stem}_{prefix}_MP.avi"
-        self.concatenate_videos(temp_video_dir, output_path)
-
-        # Clean up the temporary directory
-        os.rmdir(temp_video_dir)
-    
-    def get_dims(self, frame_path):
-        with open(frame_path, 'rb') as bmp:
-            bmp.read(18)  # Skip over the size and reserved fields.
-
-            # Read width and height.
-            width = struct.unpack('I', bmp.read(4))[0]
-            height = struct.unpack('I', bmp.read(4))[0]
-
-        return (width, height)
-    
-    def concatenate_videos(self, temp_video_dir, output_path):
-        # Determine the list of all chunk video files
-        chunk_files = sorted([os.path.join(temp_video_dir, f) for f in os.listdir(temp_video_dir) if f.endswith('.avi')])
-        # Create a temporary text file containing the list of video files for ffmpeg
-        list_path = os.path.join(temp_video_dir, 'video_list.txt')
-        with open(list_path, 'w') as f:
-            for chunk_file in chunk_files:
-                f.write(f"file '{chunk_file}'\n")
-
-        # Run ffmpeg command to concatenate all the videos
-        ffmpeg_cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_path, '-c', 'copy', output_path]
-        subprocess.run(ffmpeg_cmd)
-
-        # Clean up the temporary chunk video files and text file
-        for file_path in chunk_files:
-            os.remove(file_path)
-        os.remove(list_path)
-
-    def clear_BMP_files(self):
-        # Get all the bmp files in the folder
-        bmp_files = [f for f in os.listdir(self.path) if f.endswith('.bmp')]
-
-        # Sort the files by name
-        bmp_files.sort()
-
-        for bmp_file in bmp_files:
-            bmp_path = os.path.join(self.path, bmp_file)
-            os.remove(bmp_path)
-
-def bmp_to_avi_MP(prefix, data_folder_path, framerate = 30, num_processes = 8):
-    # Get all the bmp files in the folder
-    bmp_files = [f for f in os.listdir(data_folder_path) if f.endswith('.bmp') and f.startswith(prefix)]
-
-    # Sort the files by name
-    bmp_files.sort()
-
-    # Get the first file to use as a template for the video writer
-    first_file = cv.imread(os.path.join(data_folder_path, bmp_files[0]))
-    height, width, channels = first_file.shape
-    dims = (width, height)
-    FPS = framerate
-
-    temp_video_dir = data_folder_path / 'temp_videos'
-    os.makedirs(temp_video_dir, exist_ok=True)
-
-    # Divide your list of bmp frame files into chunks according to the number of available CPUs
-    chunk_size = len(bmp_files) // num_processes
-    chunks = [bmp_files[i:i + chunk_size] for i in range(0, len(bmp_files), chunk_size)]
-
-    # Use multiprocessing to process each chunk
-    with mp.Pool(num_processes) as p:
-        p.starmap(process_video_chunk_MP, [(chunks[i], i, temp_video_dir, FPS, dims, data_folder_path) for i in range(num_processes)])
-
-    # Concatenate all chunks into a single video
-    output_path = data_folder_path / f"{data_folder_path.stem}_{prefix}_MP.avi"
-    concatenate_videos(temp_video_dir, output_path)
-
-    # Clean up the temporary directory
-    os.rmdir(temp_video_dir)
-
-def get_dims(frame_path):
-    with open(frame_path, 'rb') as bmp:
-        bmp.read(18)  # Skip over the size and reserved fields.
-
-        # Read width and height.
-        width = struct.unpack('I', bmp.read(4))[0]
-        height = struct.unpack('I', bmp.read(4))[0]
-
-    return (width, height)
-
-def concatenate_videos(temp_video_dir, output_path):
-    # Determine the list of all chunk video files
-    chunk_files = sorted([os.path.join(temp_video_dir, f) for f in os.listdir(temp_video_dir) if f.endswith('.avi')])
-    # Create a temporary text file containing the list of video files for ffmpeg
-    list_path = os.path.join(temp_video_dir, 'video_list.txt')
-    with open(list_path, 'w') as f:
-        for chunk_file in chunk_files:
-            f.write(f"file '{chunk_file}'\n")
-
-    # Run ffmpeg command to concatenate all the videos
-    ffmpeg_cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_path, '-c', 'copy', output_path]
-    subprocess.run(ffmpeg_cmd)
-
-    # Clean up the temporary chunk video files and text file
-    for file_path in chunk_files:
-        os.remove(file_path)
-    os.remove(list_path)
-
-def clear_BMP_files(data_folder_path):
-    # Get all the bmp files in the folder
-    bmp_files = [f for f in os.listdir(data_folder_path) if f.endswith('.bmp')]
-
-    # Sort the files by name
-    bmp_files.sort()
-
-    for bmp_file in bmp_files:
-        bmp_path = os.path.join(data_folder_path, bmp_file)
-        os.remove(bmp_path)
-
-def process_video_chunk_MP(chunk, chunk_index, temp_video_dir, FPS, DIMS, path):
-    fourcc = cv.VideoWriter_fourcc(*'MJPG')
-    # Each process will create its own output file
-    temp_video_path = os.path.join(temp_video_dir, f"chunk_{chunk_index}.avi")
-    video_writer = cv.VideoWriter(temp_video_path, fourcc, FPS, DIMS)
-
-    for bmp_file in chunk:
-        bmp_path = os.path.join(path, bmp_file)
-        frame = cv.imread(bmp_path)
-        video_writer.write(frame)
-
-    video_writer.release()
 
 
-
-
-def main():
-
-    cohort_directory = Path(r"/cephfs2/srogers/March_training")
-
-    directory_info = Cohort_folder(cohort_directory, OEAB_legacy = False).cohort
-
-    no_of_session_in_cohort = 0
-    for mouse in directory_info["mice"]:
-        for session in directory_info["mice"][mouse]["sessions"]:
-            no_of_session_in_cohort += 1
-
-    analysis_log_filename = f"{cohort_directory}/{datetime.now():%y%m%d_%H%M%S}_analysis_log.txt"
-    analysis_log = f"Analysis_manager run {datetime.now():%d-%m-%Y_%H:%M:%S}\n"
-    with open(analysis_log_filename, 'w') as f:
-        f.write(analysis_log)
-
-    fully_processed = 0
-    incomplete = 0
-
-    refresh = False
-    
-    sessions_completed = 0
-    for mouse in directory_info["mice"]:
-        for session in directory_info["mice"][mouse]["sessions"]:
-            session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-            if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-                if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-                    print(f"Processing {session_directory}...")
-                    Process_Raw_Behaviour_Data(session_directory)
-                    sessions_completed += 1
-                    fully_processed += 1
-                    print(f"{sessions_completed}/{no_of_session_in_cohort} completed")
-                    analysis_log += f"{session_directory} processed\n"
-                    with open(analysis_log_filename, 'w') as f:
-                        f.write(analysis_log)
-                else:
-                    print(f"{session_directory} already processed")
-                    analysis_log += f"{session_directory} already processed\n"  
-                    with open(analysis_log_filename, 'w') as f:
-                        f.write(analysis_log)
-                    sessions_completed += 1
-                    fully_processed += 1
-                    print(f"{sessions_completed}/{no_of_session_in_cohort} completed")
-            else:
-                print(f"{session_directory} raw data incomplete")
-                analysis_log += f"{session_directory} raw data incomplete\n"
-                with open(analysis_log_filename, 'w') as f:
-                    f.write(analysis_log)
-                sessions_completed += 1
-                incomplete += 1
-                print(f"{sessions_completed}/{no_of_session_in_cohort} completed")
-
-    
-
-    print(f"Fully processed: {fully_processed}, incomplete: {incomplete}")
-
-def main_MP():
-
-    total_start_time = time.perf_counter()
-
-    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
-
+def logging_setup(cohort_directory):
     # ---- Logging setup -----
     logger = logging.getLogger(__name__)        # Create a logger object
     logger.setLevel(logging.DEBUG)
@@ -615,7 +400,17 @@ def main_MP():
     console_handler.setFormatter(formatter)
     logger.addHandler(file_handler)     # Add the handlers to the logger
     logger.addHandler(console_handler)
-    # --------------------------
+
+    return logger
+
+
+def main():
+
+    total_start_time = time.perf_counter()
+
+    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
+
+    logger = logging_setup(cohort_directory)
 
     Cohort = Cohort_folder(cohort_directory, multi = True, plot=False, OEAB_legacy = False)
 
@@ -653,7 +448,7 @@ def main_MP():
     print(f"Total time taken: {round((time.perf_counter() - total_start_time) // 60)} minutes, {round((time.perf_counter() - total_start_time) % 60)} seconds")
 
 if __name__ == "__main__":
-    main_MP()
+    main()
 
 
 
