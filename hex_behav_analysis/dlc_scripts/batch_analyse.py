@@ -5,7 +5,8 @@ import sys
 
 
 # config = r'/cephfs2/srogers/New_analysis_pipeline/training_videos/DLC_Project_231212_193535_wtjx285-2a_raw_MP-SRC-2024-01-09/config.yaml'
-config = r'/cephfs2/dwelch/6-choice_behaviour_DLC_model/config.yaml'
+# config = r'/cephfs2/dwelch/6-choice_behaviour_DLC_model/config.yaml'
+config = r'/cephfs2/srogers/2503_DLC_model_videos/LMDC_model_videos/LMDC-StefanRC-2025-03-11/config.yaml'
 
 def analyse(video_path, gpu_id):
     start_time = time.perf_counter()
