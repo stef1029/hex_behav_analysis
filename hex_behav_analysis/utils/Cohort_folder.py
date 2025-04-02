@@ -450,14 +450,23 @@ class Cohort_folder:
                 raw_data["video_length"] = self.get_video_length(raw_data["tracker_data"])
 
                 # Read the session metadata from the relevant file (JSON or NWB)
-                raw_data["session_metadata"] = self.get_session_metadata(raw_data["behaviour_data"])
+                session_metadata = self.get_session_metadata(raw_data["behaviour_data"])
+                # Make sure session_metadata is a dictionary, never None
+                if session_metadata is None:
+                    session_metadata = {
+                        "phase": None,
+                        "total_trials": None,
+                        "cue_duration": None,
+                        "wait_duration": "0"
+                    }
+                raw_data["session_metadata"] = session_metadata
 
                 # -------------------------
                 # *New* phase validation:
                 # -------------------------
                 # If the session's phase is not an exact match in valid_phases,
                 # force "is_all_raw_data_present?" to be False.
-                phase_in_file = raw_data["session_metadata"].get("phase", None)
+                phase_in_file = session_metadata.get("phase", None)
                 if phase_in_file not in valid_phases:
                     raw_data["is_all_raw_data_present?"] = False
                     # Optionally note "invalid_phase" in missing_files for clarity
@@ -553,7 +562,13 @@ class Cohort_folder:
         except Exception as e:
             print(f"Error processing metadata from {nwb_or_json_file}: {str(e)}")
             traceback.print_exc()
-            return None
+            # Return empty dictionary with default values instead of None
+            session_metadata = {
+                "phase": None,
+                "total_trials": None,
+                "cue_duration": None,
+                "wait_duration": "0"
+            }
 
         return session_metadata
 
