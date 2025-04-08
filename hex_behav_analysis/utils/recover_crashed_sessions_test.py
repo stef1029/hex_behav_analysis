@@ -256,6 +256,9 @@ def recover_from_backup(backup_file_path, verbose=False):
     Recovers data from a backup CSV file and converts it to proper HDF5 format.
     Only processes the backup if no corresponding HDF5 file exists or if it's corrupted.
     
+    If the CSV contains timestamps in a third column, it will use those timestamps instead
+    of generating them based on sample rate.
+    
     Args:
         backup_file_path (str or Path): Path to the backup CSV file
         verbose (bool): Whether to print detailed information
@@ -288,13 +291,35 @@ def recover_from_backup(backup_file_path, verbose=False):
     
     # Read the backup CSV file
     messages_from_arduino = []
+    actual_timestamps = []
+    has_timestamps = False
+    
     try:
         log_info(f"\nProcessing backup file: {backup_path}", verbose)
         log_info(f"Date time: {date_time}", verbose)
         log_info(f"Mouse ID: {mouse_ID}", verbose)
         
+        # First, check if there's a third column by reading a few rows
         with open(backup_path, 'r') as csvfile:
-            # Read first few lines to debug
+            csv_reader = csv.reader(csvfile)
+            sample_rows = []
+            for i, row in enumerate(csv_reader):
+                if i < 5:  # Just read first 5 rows to check format
+                    sample_rows.append(row)
+                else:
+                    break
+            
+            # Check if any row has 3 columns (assumes consistent format)
+            has_timestamps = any(len(row) >= 3 for row in sample_rows)
+            
+            if has_timestamps:
+                log_info(f"Detected timestamp data in the CSV file, will use actual timestamps", verbose)
+            else:
+                log_info(f"No timestamp data found, will generate timestamps based on sample rate", verbose)
+        
+        # Now read the full file
+        with open(backup_path, 'r') as csvfile:
+            # Debug first few lines if verbose
             if verbose:
                 first_lines = []
                 for i, line in enumerate(csvfile):
@@ -309,19 +334,52 @@ def recover_from_backup(backup_file_path, verbose=False):
             
             csv_reader = csv.reader(csvfile)
             for row in csv_reader:
-                if len(row) != 2:
-                    log_warning(f"Unexpected row format: {row}", verbose)
+                # Handle varying row formats
+                if len(row) < 2:
+                    log_warning(f"Skipping row with insufficient columns: {row}", verbose)
                     continue
+                    
                 try:
                     message_id = int(row[0])
                     message_data = int(row[1])
                     messages_from_arduino.append([message_id, message_data])
+                    
+                    # If there's a third column with timestamps, collect it
+                    if len(row) >= 3 and row[2]:
+                        try:
+                            timestamp = float(row[2])
+                            actual_timestamps.append(timestamp)
+                        except ValueError:
+                            log_warning(f"Invalid timestamp value in row {row}", verbose)
+                            # If we encounter invalid timestamp, revert to using sample rate
+                            if len(actual_timestamps) > 0:
+                                log_warning(f"Some timestamps were invalid, reverting to sample rate calculation", verbose)
+                                actual_timestamps = []
+                                has_timestamps = False
+                            
+                    elif has_timestamps:
+                        # If we expected timestamps but this row doesn't have one
+                        log_warning(f"Missing timestamp in row {row}", verbose)
+                        # Revert to using sample rate
+                        if len(actual_timestamps) > 0:
+                            log_warning(f"Some rows missing timestamps, reverting to sample rate calculation", verbose)
+                            actual_timestamps = []
+                            has_timestamps = False
+                    
                 except ValueError as e:
                     log_warning(f"Error parsing row {row}: {e}", verbose)
                     continue
                     
         if not messages_from_arduino:
             raise ValueError("No valid data could be parsed from the CSV file")
+            
+        # Verify we have timestamps for all messages if using timestamp column
+        if has_timestamps and len(actual_timestamps) != len(messages_from_arduino):
+            log_warning(f"Mismatch in number of timestamps ({len(actual_timestamps)}) and messages ({len(messages_from_arduino)})", verbose)
+            log_warning(f"Reverting to sample rate calculation", verbose)
+            has_timestamps = False
+            actual_timestamps = []
+            
     except Exception as e:
         log_error(f"Error reading backup file: {str(e)}", verbose)
         return False
@@ -350,8 +408,25 @@ def recover_from_backup(backup_file_path, verbose=False):
         binary_message = binary_message[::-1]
         channel_data_array[i] = binary_message
     
-    sample_rate = 1000
-    timestamps = np.arange(num_messages) / sample_rate
+    # Generate timestamps
+    sample_rate = 1000  # Default sample rate in Hz
+    
+    if has_timestamps and actual_timestamps:
+        # Use actual timestamps from the file
+        timestamps = np.array(actual_timestamps)
+        log_info(f"Using {len(timestamps)} actual timestamps from CSV data", verbose)
+        
+        # Calculate effective sample rate for metadata (average)
+        if len(timestamps) > 1:
+            time_span = timestamps[-1] - timestamps[0]
+            if time_span > 0:
+                effective_rate = (len(timestamps) - 1) / time_span
+                sample_rate = effective_rate
+                log_info(f"Calculated effective sample rate: {effective_rate:.2f} Hz", verbose)
+    else:
+        # Generate timestamps based on sample rate
+        timestamps = np.arange(num_messages) / sample_rate
+        log_info(f"Generated {len(timestamps)} timestamps based on {sample_rate} Hz sample rate", verbose)
     
     # Save to HDF5
     try:
@@ -373,8 +448,16 @@ def recover_from_backup(backup_file_path, verbose=False):
             h5f.attrs['time'] = str(datetime.now())
             h5f.attrs['No_of_messages'] = num_messages
             h5f.attrs['reliability'] = 100.0
-            h5f.attrs['time_taken'] = num_messages / sample_rate
+            
+            # Calculate time_taken from actual timestamps if available
+            if has_timestamps and len(timestamps) > 1:
+                time_taken = timestamps[-1] - timestamps[0]
+            else:
+                time_taken = num_messages / sample_rate
+                
+            h5f.attrs['time_taken'] = time_taken
             h5f.attrs['messages_per_second'] = sample_rate
+            h5f.attrs['timestamp_source'] = "file" if has_timestamps else "generated"
             
             h5f.create_dataset('message_ids', data=message_ids, compression='gzip')
             h5f.create_dataset('timestamps', data=timestamps, compression='gzip')
