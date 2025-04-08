@@ -225,11 +225,23 @@ class Cohort_folder:
         for mouse in cohort_info["mice"]:
             for session in cohort_info["mice"][mouse]["sessions"]:
                 try:
-                    behaviour_phase = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["session_metadata"]["phase"]
-                    total_trials = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["session_metadata"]["total_trials"]
-                    video_length = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["video_length"]
-
-                    if cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
+                    # Check if session has valid raw data
+                    is_data_present = cohort_info["mice"][mouse]["sessions"][session]["raw_data"].get("is_all_raw_data_present?", False)
+                    
+                    # Get metadata
+                    try:
+                        behaviour_phase = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["session_metadata"].get("phase")
+                        total_trials = cohort_info["mice"][mouse]["sessions"][session]["raw_data"]["session_metadata"].get("total_trials")
+                        video_length = cohort_info["mice"][mouse]["sessions"][session]["raw_data"].get("video_length")
+                    except (KeyError, TypeError):
+                        # Handle case where session_metadata might be missing or incomplete
+                        behaviour_phase = None
+                        total_trials = None
+                        video_length = None
+                        is_data_present = False
+                    
+                    # Add session to appropriate section
+                    if is_data_present:
                         if "complete_data" not in self.cohort_concise:
                             self.cohort_concise["complete_data"] = {}
                         if mouse not in self.cohort_concise["complete_data"]:
@@ -251,7 +263,8 @@ class Cohort_folder:
                             "video_length": video_length,
                             "mouse_id": mouse,
                         }
-                except:
+                except Exception as e:
+                    # Check if session is in the ignore list first
                     ignore = [
                         "240807_163610_wtjp254-4b",  # forgot to turn scales on
                         "240725_110604_wtjx300-6a",  # no trials
@@ -267,12 +280,14 @@ class Cohort_folder:
                         "240720_120413_wtjx300-6b",
                         "240719_150822_wtjx261-2a",
                         "240716_141151_wtjx261-2a",
-                        "240719_150822_wtjx307-6b"
+                        "240719_150822_wtjx307-6b",
+                        # Add the problematic session ID here if known
+                        "250401_170043_mtao106-3e"
                     ]
                     if session in ignore:
                         continue
                     else:
-                        print(f"Error processing {session}")
+                        print(f"Error processing {session}: {str(e)}")
                     continue
 
 
@@ -405,10 +420,20 @@ class Cohort_folder:
                 if raw_data["behaviour_data"] != "None":
                     try:
                         with open(raw_data["behaviour_data"]) as f:
-                            data = json.load(f)
-                        raw_data["scales_data"] = len(data["Scales data"]) > 0
-                        check_list.append(raw_data["scales_data"])
-                    except:
+                            try:
+                                data = json.load(f)
+                                raw_data["scales_data"] = len(data["Scales data"]) > 0
+                                check_list.append(raw_data["scales_data"])
+                            except (json.JSONDecodeError, KeyError) as json_err:
+                                print(f"JSON error in {session}: {str(json_err)}")
+                                raw_data["scales_data"] = False
+                                check_list.append("None")  # Mark as missing
+                                # Add to missing files list
+                                if "missing_files" not in raw_data:
+                                    raw_data["missing_files"] = []
+                                raw_data["missing_files"].append("invalid_behaviour_data_json")
+                    except Exception as e:
+                        print(f"Error reading behaviour data for {session}: {str(e)}")
                         raw_data["scales_data"] = False
                         check_list.append("None")
                 else:
@@ -422,24 +447,24 @@ class Cohort_folder:
                     raw_data["is_all_raw_data_present?"] = False
 
                 # Track which files are missing
-                missing_files = []
+                if "missing_files" not in raw_data:
+                    raw_data["missing_files"] = []
+                    
                 if raw_data["raw_video"] == "None":
-                    missing_files.append("raw_video")
+                    raw_data["missing_files"].append("raw_video")
                 if raw_data["behaviour_data"] == "None":
-                    missing_files.append("behaviour_data")
+                    raw_data["missing_files"].append("behaviour_data")
                 if raw_data["tracker_data"] == "None":
-                    missing_files.append("tracker_data")
+                    raw_data["missing_files"].append("tracker_data")
 
                 if self.OEAB_legacy:
                     if raw_data["arduino_DAQ_json"] == "None":
-                        missing_files.append("arduino_DAQ_json")
+                        raw_data["missing_files"].append("arduino_DAQ_json")
                     if raw_data["OEAB"] == "None":
-                        missing_files.append("OEAB")
+                        raw_data["missing_files"].append("OEAB")
                 else:
                     if raw_data["arduino_DAQ_h5"] == "None":
-                        missing_files.append("arduino_DAQ_h5")
-
-                raw_data["missing_files"] = missing_files
+                        raw_data["missing_files"].append("arduino_DAQ_h5")
 
                 # If OEAB_legacy, store OEAB folder contents
                 if self.OEAB_legacy:
@@ -450,14 +475,29 @@ class Cohort_folder:
                 raw_data["video_length"] = self.get_video_length(raw_data["tracker_data"])
 
                 # Read the session metadata from the relevant file (JSON or NWB)
-                raw_data["session_metadata"] = self.get_session_metadata(raw_data["behaviour_data"])
+                session_metadata = self.get_session_metadata(raw_data["behaviour_data"])
+                # Make sure session_metadata is a dictionary, never None
+                if session_metadata is None:
+                    session_metadata = {
+                        "phase": None,
+                        "total_trials": None,
+                        "cue_duration": None,
+                        "wait_duration": "0"
+                    }
+                raw_data["session_metadata"] = session_metadata
+
+                # Check if the JSON was invalid (new flag from get_session_metadata)
+                if session_metadata.get("invalid_json", False) or session_metadata.get("error_occurred", False):
+                    raw_data["is_all_raw_data_present?"] = False
+                    if "invalid_json" not in raw_data["missing_files"]:
+                        raw_data["missing_files"].append("invalid_json")
 
                 # -------------------------
-                # *New* phase validation:
+                # Phase validation:
                 # -------------------------
                 # If the session's phase is not an exact match in valid_phases,
                 # force "is_all_raw_data_present?" to be False.
-                phase_in_file = raw_data["session_metadata"].get("phase", None)
+                phase_in_file = session_metadata.get("phase", None)
                 if phase_in_file not in valid_phases:
                     raw_data["is_all_raw_data_present?"] = False
                     # Optionally note "invalid_phase" in missing_files for clarity
@@ -517,12 +557,22 @@ class Cohort_folder:
             if nwb_or_json_file != "None":
                 suffix = Path(nwb_or_json_file).suffix
                 if suffix == '.json':
-                    with open(nwb_or_json_file) as f:
-                        data = json.load(f)
-                    session_metadata["phase"] = data.get("Behaviour phase")
-                    session_metadata["total_trials"] = data.get("Total trials")
-                    session_metadata["cue_duration"] = data.get("Cue duration", None)
-                    session_metadata["wait_duration"] = data.get("Wait duration", "0")
+                    try:
+                        with open(nwb_or_json_file) as f:
+                            data = json.load(f)
+                        session_metadata["phase"] = data.get("Behaviour phase")
+                        session_metadata["total_trials"] = data.get("Total trials")
+                        session_metadata["cue_duration"] = data.get("Cue duration", None)
+                        session_metadata["wait_duration"] = data.get("Wait duration", "0")
+                    except json.JSONDecodeError as json_err:
+                        print(f"JSONDecodeError for file {nwb_or_json_file}: {str(json_err)}")
+                        # Set metadata to default values for invalid JSON
+                        session_metadata["phase"] = None
+                        session_metadata["total_trials"] = None
+                        session_metadata["cue_duration"] = None
+                        session_metadata["wait_duration"] = "0"
+                        # Add a flag to indicate JSON was invalid
+                        session_metadata["invalid_json"] = True
                 elif suffix == '.nwb':
                     with NWBHDF5IO(str(nwb_or_json_file), 'r') as io:
                         nwbfile = io.read()
@@ -553,7 +603,14 @@ class Cohort_folder:
         except Exception as e:
             print(f"Error processing metadata from {nwb_or_json_file}: {str(e)}")
             traceback.print_exc()
-            return None
+            # Return empty dictionary with default values instead of None
+            session_metadata = {
+                "phase": None,
+                "total_trials": None,
+                "cue_duration": None,
+                "wait_duration": "0",
+                "error_occurred": True
+            }
 
         return session_metadata
 

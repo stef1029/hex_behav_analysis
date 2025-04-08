@@ -9,7 +9,7 @@ def main(video_path, config_path):
                                 draw_skeleton=True,
                                 trailpoints=0,
                                 displaycropped=False,
-                                color_by='individual')
+                                overwrite=True)
 
 if __name__ == "__main__":
 
