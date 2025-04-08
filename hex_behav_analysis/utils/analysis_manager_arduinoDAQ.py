@@ -219,15 +219,18 @@ class Process_Raw_Behaviour_Data:
         #     print(f"Pulses: {len(self.camera_pulses)}, Frame IDs: {self.frame_IDs[-1]}")
         #     raise Exception("Error: Number of camera pulses is less than the number of frame IDs. Check data.")
         
-        if len(self.camera_pulses) < self.frame_IDs[-1]:
+        if len(self.camera_pulses) < self.max_frame_ID + 1:  # Add +1 because indices start at 0
             new_max_frame_id = len(self.camera_pulses) - 1
-            truncated_frame_ids = [f for f in self.frame_IDs if f <= new_max_frame_id]
-            self.frame_IDs = truncated_frame_ids
+            self.frame_IDs = [f for f in self.frame_IDs if f <= new_max_frame_id]
             print(
                 f"Warning: Only {len(self.camera_pulses)} camera pulses recorded, "
                 f"so truncating frame IDs to {len(self.frame_IDs)}."
             )
-
+            # Add this debug statement to verify truncation worked
+            self.max_frame_ID = max(self.frame_IDs) if self.frame_IDs else -1
+            print(f"After truncation - New max_frame_ID: {self.max_frame_ID}")
+            
+        print(f"Debug: len pulse times: {len(self.pulse_times)}, len frame IDs: {len(self.frame_IDs)}")
         frame_ID = 0
         for frame_ID in self.frame_IDs:
             self.frame_times[frame_ID] = self.pulse_times[frame_ID]
