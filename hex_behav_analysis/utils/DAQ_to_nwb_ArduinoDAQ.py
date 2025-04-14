@@ -178,6 +178,10 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
         if len(edges) > 0:
             # Time of the first pulse
             first_pulse_time = timestamps[edges[0]]
+            # Time of the last pulse
+            last_pulse_time = timestamps[edges[-1]]
+            # Total recording duration
+            total_duration = timestamps[-1]
             # Number of pulses
             detected_pulses = len(edges)
 
@@ -201,8 +205,8 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
 
                     shift_time = missing_frames / frame_rate
                     print(f"  [CAMERA WARNING] The first camera pulse occurs at {first_pulse_time*1000:.2f} ms "
-                          f"(<{start_minimum*1000:.2f} ms). Likely truncated pulses. "
-                          f"Shifting video timestamps backward by {shift_time:.3f} s.\n")
+                        f"(<{start_minimum*1000:.2f} ms). Likely truncated pulses. "
+                        f"Shifting video timestamps backward by {shift_time:.3f} s.\n")
 
                     # Shift all video timestamps backward by shift_time
                     # (only if it doesn't push them below 0 in a problematic way)
@@ -213,6 +217,21 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
                             video_timestamps[key] = float(video_timestamps[key]) - shift_time
             else:
                 print(f"  [CAMERA INFO] First camera pulse occurs at {first_pulse_time*1000:.2f} ms.")
+            
+            # New check for the end of recording
+            end_minimum = 0.1  # seconds
+            time_to_end = total_duration - last_pulse_time
+            if time_to_end < end_minimum:
+                print(f"  [CAMERA WARNING] The last camera pulse occurs at {last_pulse_time*1000:.2f} ms, "
+                    f"which is only {time_to_end*1000:.2f} ms from the end of recording "
+                    f"(<{end_minimum*1000:.2f} ms). Likely truncated pulses at the end.")
+                
+                # Here you could add logic similar to the start check if you want to adjust timestamps
+                # For example, estimate if there are additional frames we might have missed
+                # This would depend on your specific requirements
+            else:
+                print(f"  [CAMERA INFO] Last camera pulse occurs at {last_pulse_time*1000:.2f} ms, "
+                    f"{time_to_end*1000:.2f} ms from end of recording.")
     # ---------------------------------------------------------------------
     # (C) Prepare an NWBFile with relevant metadata
     # ---------------------------------------------------------------------

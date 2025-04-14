@@ -139,7 +139,7 @@ def recover_frame_ids(json_file_path, verbose=False):
             log_warning(f"JSON file is corrupted or not found: {json_file_path}", verbose)
         elif data.get('frame_IDs') and len(data['frame_IDs']) > 0:
             # Check for required fields
-            required_fields = ['start_time', 'end_time', 'fps']
+            required_fields = ['start_time', 'end_time', 'frame_rate']
             missing_fields = [field for field in required_fields if field not in data]
             
             if not missing_fields:
@@ -187,13 +187,13 @@ def recover_frame_ids(json_file_path, verbose=False):
             data['start_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log_debug(f"Adding missing 'start_time' field with value: {data['start_time']}", verbose)
             
-        if 'fps' not in data:
-            data['fps'] = 30.0  # Default FPS value
-            log_debug(f"Adding missing 'fps' field with default value: {data['fps']}", verbose)
+        if 'frame_rate' not in data:
+            data['frame_rate'] = 30.0  # Default FPS value
+            log_debug(f"Adding missing 'frame_rate' field with default value: {data['frame_rate']}", verbose)
             
         if 'end_time' not in data:
             # Calculate end_time based on fps and number of frames
-            fps = data['fps']
+            fps = data['frame_rate']
             num_frames = len(frame_ids)
             
             if fps > 0 and num_frames > 0:

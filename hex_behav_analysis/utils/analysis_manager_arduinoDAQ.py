@@ -19,19 +19,21 @@ from hex_behav_analysis.Preliminary_analysis_scripts.Full_arduinoDAQ_import impo
 from hex_behav_analysis.utils.DAQ_plot_ArduinoDAQ import DAQ_plot
 from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from hex_behav_analysis.utils.DAQ_to_nwb_ArduinoDAQ import *
+from hex_behav_analysis.utils.analysis_logger import AnalysisLogger
 
 
 
 
 class Process_Raw_Behaviour_Data:
-    def __init__(self, session_info, logger):
+    def __init__(self, session_info, logger, sync_with_ephys=False):
         self.session = session_info
-
+        self.sync_with_ephys = sync_with_ephys  # New parameter
         self.session_id = self.session.get("session_id")
         self.mouse_id = self.session.get("mouse_id")
 
-        # self.count_files(self.data_folder_path)
-
+        self.print = AnalysisLogger()
+        self.print.set_verbose(True)  # Set to False to disable verbose logging
+        
         try:
             self.ingest_behaviour_data()
         except Exception as e:
@@ -51,7 +53,7 @@ class Process_Raw_Behaviour_Data:
         ArduinoDAQ.json,
         OEAB folder,
         """
-
+        func_name = "ingest_behaviour_data"
         start_time = time.perf_counter()
 
         self.data_folder_path = Path(self.session.get("directory"))
@@ -62,13 +64,20 @@ class Process_Raw_Behaviour_Data:
         self.arduino_DAQ_Path = Path(self.session.get("raw_data")["arduino_DAQ_h5"])
         # self.OEAB_folder = Path(self.session.get("raw_data")["OEAB"])
 
-        print("Files found, processing...")
+        self.print.log(func_name, "Files found, processing...")
+
+        # Look for ephys sync timestamps if enabled
+        if self.sync_with_ephys:
+            found_timestamps = self.load_ephys_timestamps()
+            if found_timestamps:
+                self.print.log(func_name, "Ephys timestamps used for synchronization.")
 
         self.sendkey_logs = Session(self.behaviour_data_Path)
         try:
             self.rig_id = int(self.sendkey_logs.rig_id)
         except:
             self.rig_id = 1
+            self.print.log(func_name, "Could not parse rig_id as integer, using default value 1")
 
         self.video_fps = self.sendkey_logs.video_fps
         
@@ -80,11 +89,14 @@ class Process_Raw_Behaviour_Data:
                             "video_fps": self.video_fps
                             }
 
+        self.print.log(func_name, "Processing camera frame times...")
         self.get_camera_frame_times()
 
+        self.print.log(func_name, "Processing scales data...")
         self.get_scales_data()
 
         # Initialize and run the plotting class
+        self.print.log(func_name, "Generating DAQ plots...")
         daq_plotter = DAQ_plot(DAQ_h5_path=self.arduino_DAQ_Path,
                             directory=self.data_folder_path,
                             scales_data=self.scales_data,
@@ -96,26 +108,226 @@ class Process_Raw_Behaviour_Data:
         # with open(self.sendkey_logs_filename, 'w') as f:
         #     json.dump(self.sendkey_dataframe.to_json(orient = "table"), f, indent = 4)
         self.sendkey_dataframe.to_csv(self.sendkey_logs_filename, index=False)
+        self.print.log(func_name, f"Saved sendkey logs to {self.sendkey_logs_filename}")
 
+        self.print.log(func_name, "Converting data to NWB format...")
         DAQ_to_nwb(DAQ_h5_path=self.arduino_DAQ_Path, 
-                   scales_data=self.scales_data,
-                   session_ID=self.session_id, 
-                   mouse_id=self.mouse_id, 
-                   video_directory=self.raw_video_Path, 
-                   video_timestamps=self.frame_times,
-                   session_directory=self.data_folder_path,
-                   session_metadata=session_metadata,
-                   session_description="Red Hex behaviour", 
-                   experimenter="Stefan Rogers-Coltman", 
-                   institution="MRC LMB", 
-                   lab="Tripodi Lab",
-                   max_frame_id=self.max_frame_ID)
+                scales_data=self.scales_data,
+                session_ID=self.session_id, 
+                mouse_id=self.mouse_id, 
+                video_directory=self.raw_video_Path, 
+                video_timestamps=self.frame_times,  # This now contains either original or ephys timestamps
+                session_directory=self.data_folder_path,
+                session_metadata=session_metadata,
+                session_description="Red Hex behaviour", 
+                experimenter="Stefan Rogers-Coltman", 
+                institution="MRC LMB", 
+                lab="Tripodi Lab",
+                max_frame_id=self.max_frame_ID)
 
-        print("Processing complete.")
-        # print time taken in mimutes and seconds:
-        print(f"Time taken: {round((time.perf_counter() - start_time) // 60)} minutes, {round((time.perf_counter() - start_time) % 60)} seconds")
+        # Calculate time taken
+        elapsed_time = time.perf_counter() - start_time
+        minutes = round(elapsed_time // 60)
+        seconds = round(elapsed_time % 60)
+        
+        self.print.log(func_name, "Processing complete.")
+        self.print.log(func_name, f"Time taken: {minutes} minutes, {seconds} seconds")
 
+    def load_ephys_timestamps(self, pulse_interval=50, target_pin=0):
+        """
+        Looks for an HDF5 file containing 'ephys_sync_timestamps' in the session folder
+        and loads the timestamps with interpolation to fill missing pulses.
+        
+        Only works with HDF5 (.h5) files.
+        
+        Args:
+            pulse_interval (int): Number of message reads by arduinoDAQ per sync pulse sent.
+        
+        Returns:
+            bool: True if timestamps were successfully loaded, False otherwise.
+        """
+        func_name = "load_ephys_timestamps"
+        
+        # Look specifically for HDF5 files with ephys_sync_timestamps in the name
+        timestamp_files = list(self.data_folder_path.glob("*ephys_sync_timestamps*.h5"))
+        
+        if not timestamp_files:
+            self.print.log(func_name, "No ephys sync timestamp HDF5 file found. Proceeding with default timestamps.")
+            return False
+        
+        timestamp_file = timestamp_files[0]  # Take the first matching file
+        self.print.log(func_name, f"Found ephys sync timestamp file: {timestamp_file}")
+        
+        try:
+            # Initialize the data structure
+            timestamp_data = {"pins": {}}
+            
+            # Load HDF5 file
+            with h5py.File(timestamp_file, 'r') as f:
+                # Check if the file has a 'pins' group
+                if 'pins' in f:
+                    pins_group = f['pins']
+                    for pin_name in pins_group:
+                        pin_number = int(pin_name.replace('pin_', ''))
+                        pin_group = pins_group[pin_name]
+                        
+                        # Read high_timestamps and durations
+                        if 'high_timestamps' in pin_group and 'durations' in pin_group:
+                            high_timestamps = np.array(pin_group['high_timestamps'])
+                            durations = np.array(pin_group['durations'])
+                            
+                            # Convert to the expected format
+                            events = []
+                            for ts, dur in zip(high_timestamps, durations):
+                                events.append({"high_timestamp": float(ts), "duration": float(dur)})
+                            
+                            timestamp_data["pins"][str(pin_number)] = events
+                
+                # Extract metadata if present
+                if 'metadata' in f:
+                    metadata = {}
+                    for key, value in f['metadata'].attrs.items():
+                        metadata[key] = value
+                    timestamp_data["metadata"] = metadata
+            
+            # Process the data which now has high_timestamp and duration for each pin
+            self.ephys_timestamps = {}  # This will hold pin-specific data
+            
+            # Extract metadata if present
+            if "metadata" in timestamp_data:
+                self.ephys_metadata = timestamp_data["metadata"]
+                    
+            # Extract pin data and interpolate missing pulses
+            recorded_pulses_counts = {}
+            all_timestamps = []  # Will collect all timestamps for all pins
+            if "pins" in timestamp_data:
+                # First, process pins data and collect timestamps
+                for pin, events in timestamp_data["pins"].items():
+                    # Convert pin string to integer
+                    pin_int = int(pin)
+                    
+                    # Get the high timestamps and durations from the loaded data
+                    recorded_pulses = []
+                    for event in events:
+                        # Format has high_timestamp and duration
+                        if "high_timestamp" in event and "duration" in event:
+                            high_time = event["high_timestamp"]
+                            duration = event["duration"]
+                            recorded_pulses.append((high_time, duration))
+                    
+                    recorded_pulses_counts[pin_int] = len(recorded_pulses)
+                    self.print.log(func_name, f"Original pin {pin_int} pulse count: {len(recorded_pulses)}")
+                    
+                    # Sort pulses by timestamp to ensure they're in chronological order
+                    recorded_pulses.sort(key=lambda x: x[0])
+                    
+                    # If we have at least 2 pulses, we can interpolate between them
+                    if len(recorded_pulses) >= 2:
+                        interpolated_pulses = []
+                        
+                        # For each pair of consecutive recorded pulses
+                        for i in range(len(recorded_pulses) - 1):
+                            current_pulse = recorded_pulses[i]
+                            next_pulse = recorded_pulses[i + 1]
+                            
+                            # Add the current pulse to our interpolated list
+                            interpolated_pulses.append(current_pulse)
+                            
+                            # Calculate time between pulses
+                            time_gap = next_pulse[0] - current_pulse[0]
+                            
+                            # Calculate the average duration for interpolated pulses
+                            avg_duration = (current_pulse[1] + next_pulse[1]) / 2
+                            
+                            # If time gap is large enough to interpolate pulses
+                            if time_gap > 0:                                
+                                # Time interval between interpolated pulses
+                                interval = time_gap / pulse_interval
+                                
+                                # Generate interpolated pulses
+                                for j in range(1, pulse_interval):  # 1 to pulses_per_gap (not including last which is the next recorded pulse)
+                                    interp_time = current_pulse[0] + (interval * j)
+                                    interpolated_pulses.append((interp_time, avg_duration))
+                        
+                        # Add the last recorded pulse
+                        if recorded_pulses:
+                            interpolated_pulses.append(recorded_pulses[-1])
+                        
+                        # Store the interpolated pulses
+                        self.ephys_timestamps[pin_int] = interpolated_pulses
+                        
+                        # Collect all timestamps for this pin
+                        all_timestamps.extend([ts for ts, _ in interpolated_pulses])
+                    else:
+                        # Not enough pulses to interpolate, use as-is
+                        self.ephys_timestamps[pin_int] = recorded_pulses
+                        all_timestamps.extend([ts for ts, _ in recorded_pulses])
+                
+                # Print statistics
+                pin_stats = {pin: len(events) for pin, events in self.ephys_timestamps.items()}
+                self.print.log(func_name, "Successfully loaded and interpolated ephys sync timestamps:")
+                for pin, count in pin_stats.items():
+                    original_count = recorded_pulses_counts.get(pin, 0)
+                    self.print.log(func_name, f"  Pin {pin}: {count} total pulses ({original_count} recorded, {count - original_count} interpolated)")
+                
+                # Get DAQ message count for message ID generation
+                daq_message_count = 0
+                try:
+                    with h5py.File(self.arduino_DAQ_Path, 'r') as h5f:
+                        daq_message_ids = np.array(h5f['message_ids'])
+                        daq_message_count = len(daq_message_ids)
+                        self.print.log(func_name, f"DAQ message count: {daq_message_count}")
+                        
+                        # Compare with ephys pulse counts
+                        for pin, count in recorded_pulses_counts.items():
+                            if daq_message_count > 0:
+                                ratio = daq_message_count / count
+                                self.print.log(func_name, f"Comparison - Pin {pin}: {count * pulse_interval} recorded pulses vs {daq_message_count} DAQ messages")
+                                self.print.log(func_name, f"  Ratio (messages/pulses): {ratio:.6f} ({ratio*100:.2f}%)")
 
+                except Exception as e:
+                    self.print.log(func_name, f"Could not read DAQ message count: {e}")
+                
+                # Now create a dictionary format that's compatible with get_camera_frame_times and other functions
+                self.print.log(func_name, f"Using pin {target_pin} for timestamp synchronization")
+
+                if target_pin not in self.ephys_timestamps or len(self.ephys_timestamps[target_pin]) == 0:
+                    error_msg = f"No pulses found on target pin {target_pin}. Session processing stopped."
+                    self.print.error(func_name, error_msg)
+                    raise ValueError(error_msg)
+                
+                # Extract timestamps from the chosen pin
+                pin_timestamps = [ts for ts, _ in self.ephys_timestamps[target_pin]]
+                
+                # Generate sequential message IDs from 0 to n-1
+                message_ids = list(range(len(pin_timestamps)))
+                
+                # Create the dictionary format expected by other functions
+                self.ephys_timestamps_dict = {}
+                for i, ts in enumerate(pin_timestamps):
+                    self.ephys_timestamps_dict[i] = ts
+                
+                # Adding these keys that are expected by get_camera_frame_times
+                self.ephys_timestamps["message_ids"] = message_ids
+                self.ephys_timestamps["timestamps"] = pin_timestamps
+                
+                # Create timestamp array as NUMPY ARRAY for compatibility with array indexing
+                # This fixes the "only integer scalar arrays can be converted to a scalar index" error
+                self.ephys_timestamps_array = np.array(pin_timestamps)
+                
+                self.print.log(func_name, f"Created compatible timestamp format with {len(pin_timestamps)} timestamps and sequential message IDs")
+                
+                return True  # Successfully found and loaded
+        except Exception as e:
+            self.print.error(func_name, f"Error loading and interpolating ephys sync timestamps: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Initialize empty data structures to prevent further errors
+            self.ephys_timestamps = {"message_ids": [], "timestamps": []}
+            self.ephys_timestamps_dict = {}
+            self.ephys_timestamps_array = np.array([])  # Empty numpy array
+            return False  # Failed to load
 
     def clean_DAQ_data(self, DAQ_data):
         """
@@ -143,42 +355,29 @@ class Process_Raw_Behaviour_Data:
 
         return DAQ_data
 
-    def pulse_ID_sync(self, DAQ_data, pulses):
-        # Create a dictionary that maps message ID to timestamp
-        # This assumes that pulses list has unique values for every message ID
-        pulse_dict = {i: timestamp for i, timestamp in enumerate(pulses)}
-        print(f"Number of OEAB pulses: {len(pulses)}")
-        print(f"Num DAQ binary messages: {len(DAQ_data['message_ids'])}")
-        print(f"Highest message ID: {DAQ_data['message_ids'][-1]}")
-        
-        # Replace message IDs with corresponding timestamps from the pulse_dict
-        timestamps = []
-        for message_id in DAQ_data["message_ids"]:
-            # if message_id > len(pulses):    # test if the message ID is greater than number of pulses, indicating something weird happened
-            #     continue
-            # else:
-            timestamp = pulse_dict.get(message_id, None)
-            timestamps.append(timestamp)
-        DAQ_data["timestamps"] = timestamps
-        # if None is in timestamps, raise an error:
-        # if None in DAQ_data["timestamps"]:
-        #     raise Exception("DAQ pulses error, could not assign timestamps to DAQ data")
-        # if first timestamp = 0  or last timestamp is greater than 
-        # 04/24: ISSUE COMING FROM HERE. IT'S NOT FINDING THE RIGHT INDEX IN THE TIMESTAMPS FOR SOME REASON AND SO DEFAULTING TO ADDING THE PULSE ID INSTEAD.
-        # Issue arises from errors in the recording of the DAQ pulses, so cannot be fixed by code. Fixed by raising an error and not allowing the file to generate an 'analysed' folder. (SRC 26/6/24)
-        
-        # print(f"DAQ error percentage: {len(DAQ_data['timestamps']) / len(pulses)}")
-        return DAQ_data
-
     def get_camera_frame_times(self):
+        func_name = "get_camera_frame_times"
         arduinoDAQh5 = self.arduino_DAQ_Path
 
         with h5py.File(arduinoDAQh5, 'r') as h5f:
             # Load the 'CAMERA' channel data
             camera_data = np.array(h5f['channel_data']['CAMERA'])
-
-            # Load the timestamps
-            self.timestamps = np.array(h5f['timestamps'])
+            
+            # Decide which timestamps to use
+            if self.sync_with_ephys and self.ephys_timestamps is not None:
+                # Create a mapping from message_id to ephys timestamp
+                message_ids = np.array(h5f['message_ids'])
+                ephys_ts_dict = {int(msg_id): ts for msg_id, ts in zip(
+                    self.ephys_timestamps["message_ids"], 
+                    self.ephys_timestamps["timestamps"]
+                )}
+                
+                # Use ephys timestamps instead of the original ones
+                self.timestamps = np.array([ephys_ts_dict.get(int(msg_id), 0) for msg_id in message_ids])
+                self.print.log(func_name, "Using ephys synchronized timestamps")
+            else:
+                # Use the original timestamps
+                self.timestamps = np.array(h5f['timestamps'])
         
         # Detect low-to-high transitions (0 -> 1) in camera data
         low_to_high_transitions = np.where((camera_data[:-1] == 0) & (camera_data[1:] == 1))[0]
@@ -198,83 +397,100 @@ class Process_Raw_Behaviour_Data:
         cap.release()
         if self.video_fps != None:
             fps = self.video_fps
-            print(f"fps set to {fps}")
-
+            self.print.log(func_name, f"fps set to {fps}")
         else:
             fps = 30
-            print("fps set to 30")
+            self.print.log(func_name, "fps set to 30")
         
-
         # check if frame_IDs is a key:
         if "frame_IDs" in self.video_metadata:
             self.frame_IDs = self.video_metadata["frame_IDs"]
         else:
-            raise Exception("Error: No frame_IDs found in tracker_data.json. Processing aborted.")
+            error_msg = "Error: No frame_IDs found in tracker_data.json. Processing aborted."
+            self.print.error(func_name, error_msg)
+            raise Exception(error_msg)
         self.max_frame_ID = max(self.frame_IDs)
 
         for i, pulse in enumerate(self.camera_pulses):
             self.pulse_times[i] = pulse
-
-        # if len(self.camera_pulses) < self.frame_IDs[-1]:
-        #     print(f"Pulses: {len(self.camera_pulses)}, Frame IDs: {self.frame_IDs[-1]}")
-        #     raise Exception("Error: Number of camera pulses is less than the number of frame IDs. Check data.")
         
         if len(self.camera_pulses) < self.max_frame_ID + 1:  # Add +1 because indices start at 0
             new_max_frame_id = len(self.camera_pulses) - 1
             self.frame_IDs = [f for f in self.frame_IDs if f <= new_max_frame_id]
-            print(
+            self.print.log(
+                func_name,
                 f"Warning: Only {len(self.camera_pulses)} camera pulses recorded, "
                 f"so truncating frame IDs to {len(self.frame_IDs)}."
             )
             # Add this debug statement to verify truncation worked
             self.max_frame_ID = max(self.frame_IDs) if self.frame_IDs else -1
-            print(f"After truncation - New max_frame_ID: {self.max_frame_ID}")
+            self.print.log(func_name, f"After truncation - New max_frame_ID: {self.max_frame_ID}")
             
-        print(f"Debug: len pulse times: {len(self.pulse_times)}, len frame IDs: {len(self.frame_IDs)}")
+        self.print.log(func_name, f"Debug: len pulse times: {len(self.pulse_times)}, len frame IDs: {len(self.frame_IDs)}")
         frame_ID = 0
         for frame_ID in self.frame_IDs:
             self.frame_times[frame_ID] = self.pulse_times[frame_ID]
 
-        # print video length (using frame rate of 30 and frame count), in minutes and seconds, rounded:
-        print(f"Video length: {round(self.true_video_framecount / fps) // 60} minutes, {round(self.true_video_framecount / fps) % 60} seconds")
+        # Print video length (using frame rate and frame count), in minutes and seconds, rounded:
+        minutes = round(self.true_video_framecount / fps) // 60
+        seconds = round(self.true_video_framecount / fps) % 60
+        self.print.log(func_name, f"Video length: {minutes} minutes, {seconds} seconds")
 
-        # print percentage dropped frames:
+        # Calculate percentage of dropped frames:
         dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
 
-        # print details about dropped frames:
-        print(f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
+        # Print details about dropped frames:
+        self.print.log(func_name, f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
 
         if dropped_frames >= 40:
-            raise Exception(f"Error: Too many dropped frames detected ({round(dropped_frames, 1)}%). Processing aborted.")
+            error_msg = f"Error: Too many dropped frames detected ({round(dropped_frames, 1)}%). Processing aborted."
+            self.print.error(func_name, error_msg)
+            raise Exception(error_msg)
 
-        print(f"Percentage dropped frames: {dropped_frames}%")
+        self.print.log(func_name, f"Percentage dropped frames: {dropped_frames}%")
 
         self.video_frame_times_filename = self.behaviour_data_Path.parent / f"{self.behaviour_data_Path.name[:13]}_video_frame_times.json"
 
-        self.frame_times["no_dropped_frames"] = (self.true_video_framecount - len(self.camera_pulses))
+        output_data = {
+            "frame_times": self.frame_times,
+            "no_dropped_frames": (self.true_video_framecount - len(self.camera_pulses))
+        }
 
         with open(self.video_frame_times_filename, 'w') as f:
-            json.dump(self.frame_times, f, indent = 4)
+            json.dump(output_data, f, indent=4)
 
     def get_scales_data(self):
         """
         Retrieves scales data from the sendkey logs and assigns it to the scales_data attribute.
-
-        Returns:
-            None
         """
+        func_name = "get_scales_data"
         scales_logs = self.sendkey_logs.scales_data
 
         # Load scales channel data from the HDF5 file
         with h5py.File(self.arduino_DAQ_Path, 'r') as h5f:
             scales_channel_data = np.array(h5f['channel_data']['SCALES'])
-            scales_timestamps = np.array(h5f['timestamps'])
+            
+            # Decide which timestamps to use
+            if self.sync_with_ephys and self.ephys_timestamps is not None:
+                # Use ephys timestamps instead of original ones
+                message_ids = np.array(h5f['message_ids'])
+                ephys_ts_dict = {int(msg_id): ts for msg_id, ts in zip(
+                    self.ephys_timestamps["message_ids"], 
+                    self.ephys_timestamps["timestamps"]
+                )}
+                scales_timestamps = np.array([ephys_ts_dict.get(int(msg_id), 0) for msg_id in message_ids])
+                self.print.log(func_name, "Using ephys synchronized timestamps for scales data")
+            else:
+                # Use original timestamps
+                scales_timestamps = np.array(h5f['timestamps'])
 
         # Determine the type of scales based on the logs
         try:
             scales_type = 'wired' if len(scales_logs[0]) == 3 else 'wireless'
         except IndexError:
-            raise Exception("Error: No scales data found in sendkey logs. Processing aborted.")
+            error_msg = "Error: No scales data found in sendkey logs. Processing aborted."
+            self.print.error(func_name, error_msg)
+            raise Exception(error_msg)
 
         # Initialize the scales_data dictionary with consistent keys
         self.scales_data = {
@@ -285,29 +501,44 @@ class Process_Raw_Behaviour_Data:
             "mouse_weight_threshold": None,
             "scales_type": scales_type
         }
+        
+        # Add ephys key if available
+        if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+            self.scales_data["ephys_timestamps"] = None
 
         if scales_type == 'wireless':
             length_timestamps = len(self.timestamps)
             length_scales = len(scales_logs)
 
             new_scales_timestamps = []
+            new_ephys_scales_timestamps = [] if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array') else None
 
             for i in range(0, length_timestamps, length_timestamps // length_scales):
                 try:
                     new_scales_timestamps.append(self.timestamps[i])
+                    if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                        new_ephys_scales_timestamps.append(self.ephys_timestamps_array[i])
                 except IndexError:
                     new_scales_timestamps.append(self.timestamps[-1])
+                    if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                        new_ephys_scales_timestamps.append(self.ephys_timestamps_array[-1])
 
             # If length of timestamps is longer than number of weight readings, cut off last timestamps to make equal length
             if len(new_scales_timestamps) > len(scales_logs):
                 new_scales_timestamps = new_scales_timestamps[:len(scales_logs)]
+                if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                    new_ephys_scales_timestamps = new_ephys_scales_timestamps[:len(scales_logs)]
 
             self.scales_data["timestamps"] = new_scales_timestamps
             self.scales_data["weights"] = [value_pair[1] for value_pair in scales_logs]
             self.scales_data["sendkey_timestamps"] = [value_pair[0] for value_pair in scales_logs]
             self.scales_data["mouse_weight_threshold"] = self.sendkey_logs.mouse_weight
+            
+            if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                self.scales_data["ephys_timestamps"] = new_ephys_scales_timestamps
+                self.print.log(func_name, "Added ephys timestamps to wireless scales data")
 
-            print("**Warning: Scales data not accurately timestamped.**")
+            self.print.log(func_name, "**Warning: Scales data not accurately timestamped.**")
 
         elif scales_type == 'wired':
             # Detect pulse transitions in the scales channel data
@@ -315,13 +546,17 @@ class Process_Raw_Behaviour_Data:
 
             # Get the timestamps for each pulse
             scales_pulses = scales_timestamps[low_to_high_transitions + 1]  # Adding 1 for the high (1) point
+            
+            # If ephys timestamps available, get those too
+            if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                ephys_scales_pulses = self.ephys_timestamps_array[low_to_high_transitions + 1]
+                self.print.log(func_name, f"Generated {len(ephys_scales_pulses)} ephys-synchronized scale pulse timestamps")
 
             # Extract pulse IDs and weights from scales logs
             pulse_IDs = [value_pair[2] for value_pair in scales_logs]
             weights = [value_pair[1] for value_pair in scales_logs]
 
-
-            print(f"Num pulses: {len(scales_pulses)}")
+            self.print.log(func_name, f"Num pulses: {len(scales_pulses)}")
             # Match pulse IDs to pulse timestamps
             scales_data_dict = {}
             for pulse_ID, weight in zip(pulse_IDs, weights):
@@ -330,27 +565,39 @@ class Process_Raw_Behaviour_Data:
                         "timestamp": scales_pulses[pulse_ID],
                         "weight": weight
                     }
+                    # Add ephys timestamp if available
+                    if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                        if pulse_ID < len(ephys_scales_pulses):
+                            scales_data_dict[pulse_ID]["ephys_timestamp"] = ephys_scales_pulses[pulse_ID]
                 else:
-                    print(f"**Warning: Pulse ID {pulse_ID} exceeds recorded scales pulses. Skipping.**")
+                    self.print.log(func_name, f"**Warning: Pulse ID {pulse_ID} exceeds recorded scales pulses. Skipping.**")
 
             # Prepare the scales_data dictionary
             timestamps = []
             weights = []
             pulse_ids = []
+            ephys_timestamps = [] if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array') else None
+            
             for pulse_ID, data in scales_data_dict.items():
                 timestamps.append(data["timestamp"])
                 weights.append(data["weight"])
                 pulse_ids.append(pulse_ID)
+                if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array') and "ephys_timestamp" in data:
+                    ephys_timestamps.append(data["ephys_timestamp"])
 
             self.scales_data["timestamps"] = timestamps if timestamps else None
             self.scales_data["weights"] = weights if weights else None
             self.scales_data["pulse_IDs"] = pulse_ids if pulse_ids else None
             self.scales_data["mouse_weight_threshold"] = self.sendkey_logs.mouse_weight
+            
+            if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                self.scales_data["ephys_timestamps"] = ephys_timestamps if ephys_timestamps else None
+                self.print.log(func_name, f"Added {len(ephys_timestamps) if ephys_timestamps else 0} ephys timestamps to wired scales data")
 
-            print(f"Processed {len(pulse_ids)} scales readings with accurate timestamps.")
+            self.print.log(func_name, f"Processed {len(pulse_ids)} scales readings with accurate timestamps.")
 
         # Final output structure for both scales types
-        print(f"Scales data processed. Type: {self.scales_data['scales_type']}.")
+        self.print.log(func_name, f"Scales data processed. Type: {self.scales_data['scales_type']}.")
 
 
     def count_files(self, directory):
