@@ -95,14 +95,36 @@ def count_pulse_anomalies(signal, timestamps, threshold=0.5, min_ratio=0.5, debu
     
     return total_detected, missed_pulses, too_close_count, too_close_locations
 
-def check_early_pulses(signal, timestamps, threshold=0.5, min_start_delay=0.027):
-    """Check if the first detected pulse starts too early."""
-    edges = detect_pulse_edges(signal, timestamps, threshold=threshold)
-    if len(edges) == 0:
-        return None
+def check_early_pulses(signal, timestamps, threshold=0.5, min_start_delay=0.3):
+    """
+    Check if any signal values are high (above threshold) before the minimum start delay.
     
-    first_pulse_time = timestamps[edges[0]]
-    return first_pulse_time < min_start_delay, float(first_pulse_time)
+    Parameters:
+    - signal: The signal array to check
+    - timestamps: Corresponding timestamps for each point in the signal
+    - threshold: Value above which the signal is considered 'high' (default 0.5)
+    - min_start_delay: Minimum time (in seconds) before which any high values are considered problematic (default 0.3 seconds)
+    
+    Returns:
+    - Tuple (is_too_early, first_high_time) where:
+        - is_too_early: Boolean indicating if any high values were found before min_start_delay
+        - first_high_time: Timestamp of the first high value, or None if no early high values
+    """
+    # Find indices where timestamps are less than min_start_delay
+    early_indices = timestamps < min_start_delay
+    
+    # Check if any signal values in this early period are above threshold
+    early_high_values = signal[early_indices] >= threshold
+    
+    if not any(early_high_values):
+        return False, None
+    
+    # Find the first occurrence of a high value
+    for i in range(len(early_indices)):
+        if early_indices[i] and signal[i] >= threshold:
+            return True, float(timestamps[i])
+    
+    return False, None  # This shouldn't be reached if any(early_high_values) is True
 
 def check_late_pulses(signal, timestamps, threshold=0.5, min_end_delay=0.1):
     """Check if the last detected pulse ends too early before the end of recording."""
@@ -406,8 +428,8 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
 
 def main():
     # Path to cohort folder
-    # cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"
+    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    # cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"
 
     # Create or load cohort info
     print_header("Initializing Cohort Analysis")

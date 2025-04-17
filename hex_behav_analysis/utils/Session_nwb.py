@@ -6,6 +6,7 @@ import math
 import numpy as np
 import pickle
 from pynwb import NWBHDF5IO, TimeSeries, ProcessingModule
+import os
 
 from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from hex_behav_analysis.utils.DetectTrials import DetectTrials
@@ -356,7 +357,7 @@ class Session:
 
 
         
-    def draw_LEDs(self, start=0, end=None, output_path=None):
+    def draw_LEDs(self, output_path, start=0, end=None):
         if self.rig_id == 1:
             port_angles = [64, 124, 184, 244, 304, 364]  # calibrated 14/2/24 with function at end of session class
         elif self.rig_id == 2:
@@ -373,7 +374,7 @@ class Session:
                     "cue": trial['correct_port']
                 }
 
-        output_folder = Path(output_path) / "drawn_videos" if output_path is not None else Path(r"V:\test_output")
+        output_folder = Path(output_path) / "drawn_videos"
         filename = f"{self.session_ID}_labelled_LEDs.mp4"
         output_filename = output_folder / filename
 
@@ -543,6 +544,7 @@ class Session:
             nwbfile = io.read()
             self.session_video_object = nwbfile.acquisition['behaviour_video']
             self.session_video = self.session_directory / Path(self.session_video_object.external_file[0])
+            print(f"session_video = {self.session_video}")
             self.video_timestamps = self.session_video_object.timestamps[:]
             for j, trial in enumerate(self.trials):
                 if trial["phase"] != "1" or trial["phase"] != "2":

@@ -152,7 +152,7 @@ class Process_Raw_Behaviour_Data:
             sensor_name="SENSOR1",  # Default sensor name
             max_lag_seconds=15.0,   # Maximum lag to search
             save_plots=True,        # Save alignment plots
-            verbose=True            # Print detailed information
+            verbose=False            # Print detailed information
         )
         
         if lag is None:
@@ -415,143 +415,150 @@ class Process_Raw_Behaviour_Data:
 
 
 def main_MP():
-    total_start_time = time.perf_counter()
-
-    # cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
-    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/November_cohort")
-
-    # ---- Logging setup -----
-    logger = logging.getLogger(__name__)        # Create a logger object
-    logger.setLevel(logging.DEBUG)
-    log_dir = cohort_directory / 'logs'        # Create a file handler to log messages to a file
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    log_file = log_dir / 'error.log'
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.ERROR)     # Set this handler to log only errors
-    console_handler = logging.StreamHandler()       # Create a console handler to log messages to the console
-    console_handler.setLevel(logging.DEBUG)  # This handler will log all levels
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')        # Create a formatter and set it for both handlers
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)     # Add the handlers to the logger
-    logger.addHandler(console_handler)
-    # --------------------------
-
-    # Also set up a specific logger for alignment operations
-    alignment_logger = logging.getLogger('alignment')
-    alignment_logger.setLevel(logging.INFO)
-    alignment_log_file = log_dir / 'alignment.log'
-    alignment_file_handler = logging.FileHandler(alignment_log_file)
-    alignment_file_handler.setLevel(logging.INFO)
-    alignment_file_handler.setFormatter(formatter)
-    alignment_logger.addHandler(alignment_file_handler)
-    alignment_logger.addHandler(console_handler)
-
-    Cohort = Cohort_folder(cohort_directory, multi=True, plot=False, OEAB_legacy=False)
-    directory_info = Cohort.cohort
-
-    # First, let's check which sessions might need ROI-based timestamp alignment
-    sessions_to_process = []
-    sessions_with_roi = []
-    sessions_without_roi = []
-    num_sessions = 0
     
-    # Option to force reprocessing even if already analyzed
-    refresh = False
-    
-    # Option to only process sessions with ROI data
-    only_process_roi_sessions = True
+    cohorts = []
+    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
+    cohorts.append(cohort_directory)
+    # cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/November_cohort")
+    # cohorts.append(cohort_directory)
 
-    session_to_process = "250131_150005_wtjp273-3f"
-    
-    for mouse in directory_info["mice"]:
-        for session in directory_info["mice"][mouse]["sessions"]:
-            num_sessions += 1
-            session_dir = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+    for cohort_directory in cohorts:
+        total_start_time = time.perf_counter()
+        # ---- Logging setup -----
+        logger = logging.getLogger(__name__)        # Create a logger object
+        logger.setLevel(logging.DEBUG)
+        log_dir = cohort_directory / 'logs'        # Create a file handler to log messages to a file
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        log_file = log_dir / 'error.log'
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.ERROR)     # Set this handler to log only errors
+        console_handler = logging.StreamHandler()       # Create a console handler to log messages to the console
+        console_handler.setLevel(logging.DEBUG)  # This handler will log all levels
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')        # Create a formatter and set it for both handlers
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)     # Add the handlers to the logger
+        logger.addHandler(console_handler)
+        # --------------------------
+
+        # Also set up a specific logger for alignment operations
+        alignment_logger = logging.getLogger('alignment')
+        alignment_logger.setLevel(logging.INFO)
+        alignment_log_file = log_dir / 'alignment.log'
+        alignment_file_handler = logging.FileHandler(alignment_log_file)
+        alignment_file_handler.setLevel(logging.INFO)
+        alignment_file_handler.setFormatter(formatter)
+        alignment_logger.addHandler(alignment_file_handler)
+        alignment_logger.addHandler(console_handler)
+
+        Cohort = Cohort_folder(cohort_directory, multi=True, plot=False, OEAB_legacy=False)
+        directory_info = Cohort.cohort
+
+        # First, let's check which sessions might need ROI-based timestamp alignment
+        sessions_to_process = []
+        sessions_with_roi = []
+        sessions_without_roi = []
+        num_sessions = 0
+        
+        # Option to force reprocessing even if already analyzed
+        refresh = False
+        
+        # Option to only process sessions with ROI data
+        only_process_roi_sessions = True
+
+        # session_to_process = "250131_150005_wtjp273-3f"
+        
+        # for mouse in directory_info["mice"]:
+        #     for session in directory_info["mice"][mouse]["sessions"]:
+        #         num_sessions += 1
+        #         session_dir = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+                
+        #         # Check if the session has ROI data in the truncated_start_report folder
+        #         truncated_dir = session_dir / "truncated_start_report"
+        #         has_roi_data = (truncated_dir.exists() and 
+        #                     any(f.name.endswith("_brightness_data.csv") 
+        #                         for f in truncated_dir.glob("*")))
+                
+        #         # Check if the session needs processing
+        #         needs_processing = (not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] or refresh)
+        #         raw_data_present = directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"]
+                
+        #         # Filter by date if needed (only process sessions after a certain date)
+        #         date = session[:6]
+        #         meets_date_criteria = int(date) >= 241001  # Only process sessions after 2024-10-01
+                
+        #         if raw_data_present and needs_processing and meets_date_criteria:
+        #             if has_roi_data:
+        #                 sessions_with_roi.append(session)
+        #                 alignment_logger.info(f"Session {session} has ROI data available for alignment")
+        #                 if not only_process_roi_sessions:
+        #                     sessions_to_process.append(Cohort.get_session(session))
+        #             else:
+        #                 sessions_without_roi.append(session)
+        #                 if not only_process_roi_sessions:
+        #                     sessions_to_process.append(Cohort.get_session(session))
+                
+        #         # If we only want to process ROI sessions and this session has ROI data
+        #         if only_process_roi_sessions and raw_data_present and has_roi_data:
+        #             sessions_to_process.append(Cohort.get_session(session))
+
+        # # Log summary of what we found
+        # alignment_logger.info(f"Found {len(sessions_with_roi)} sessions with ROI data")
+        # alignment_logger.info(f"Found {len(sessions_without_roi)} sessions without ROI data")
+        
+        # Process the selected sessions
+        print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
+        alignment_logger.info(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
+
+        sessions_to_process = ["250205_190300_wtjp280-4f"]
+        sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
+
+        for session in sessions_to_process:
+            session_id = session.get('session_id')
+            print(f"\n\nProcessing {session.get('directory')}...")
+
+            # if session_to_process and session_id != session_to_process:
+            #     print(f"Skipping session {session_id}")
+            #     continue
             
-            # Check if the session has ROI data in the truncated_start_report folder
+            # Check if this session has ROI data before processing
+            session_dir = Path(session.get('directory'))
             truncated_dir = session_dir / "truncated_start_report"
-            has_roi_data = (truncated_dir.exists() and 
-                           any(f.name.endswith("_brightness_data.csv") 
-                               for f in truncated_dir.glob("*")))
+            has_roi = (truncated_dir.exists() and 
+                    any(f.name.endswith("_brightness_data.csv") 
+                        for f in truncated_dir.glob("*")))
             
-            # Check if the session needs processing
-            needs_processing = (not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] or refresh)
-            raw_data_present = directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"]
+            if has_roi:
+                alignment_logger.info(f"Starting processing of session {session_id} WITH ROI alignment")
+            else:
+                alignment_logger.info(f"Starting processing of session {session_id} WITHOUT ROI alignment")
             
-            # Filter by date if needed (only process sessions after a certain date)
-            date = session[:6]
-            meets_date_criteria = int(date) >= 241001  # Only process sessions after 2024-10-01
-            
-            if raw_data_present and needs_processing and meets_date_criteria:
-                if has_roi_data:
-                    sessions_with_roi.append(session)
-                    alignment_logger.info(f"Session {session} has ROI data available for alignment")
-                    if not only_process_roi_sessions:
-                        sessions_to_process.append(Cohort.get_session(session))
-                else:
-                    sessions_without_roi.append(session)
-                    if not only_process_roi_sessions:
-                        sessions_to_process.append(Cohort.get_session(session))
-            
-            # If we only want to process ROI sessions and this session has ROI data
-            if only_process_roi_sessions and raw_data_present and has_roi_data:
-                sessions_to_process.append(Cohort.get_session(session))
+            try:
+                Process_Raw_Behaviour_Data(session, logger)
+                alignment_logger.info(f"Successfully processed session {session_id}")
+            except Exception as e:
+                alignment_logger.error(f"Failed to process session {session_id}: {str(e)}")
+                traceback.print_exc()
 
-    # Log summary of what we found
-    alignment_logger.info(f"Found {len(sessions_with_roi)} sessions with ROI data")
-    alignment_logger.info(f"Found {len(sessions_without_roi)} sessions without ROI data")
-    
-    # Process the selected sessions
-    print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
-    alignment_logger.info(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
-    
-    for session in sessions_to_process:
-        session_id = session.get('session_id')
-        print(f"\n\nProcessing {session.get('directory')}...")
-
-        if session_to_process and session_id != session_to_process:
-            print(f"Skipping session {session_id}")
-            continue
+        # Refresh directory info to see what was processed
+        directory_info = Cohort_folder(cohort_directory, multi=False, plot=False, OEAB_legacy=False).cohort
         
-        # Check if this session has ROI data before processing
-        session_dir = Path(session.get('directory'))
-        truncated_dir = session_dir / "truncated_start_report"
-        has_roi = (truncated_dir.exists() and 
-                  any(f.name.endswith("_brightness_data.csv") 
-                      for f in truncated_dir.glob("*")))
+        # Calculate how many sessions were successfully processed
+        processed_count = 0
+        for mouse in directory_info["mice"]:
+            for session in directory_info["mice"][mouse]["sessions"]:
+                if directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"]:
+                    processed_count += 1
         
-        if has_roi:
-            alignment_logger.info(f"Starting processing of session {session_id} WITH ROI alignment")
-        else:
-            alignment_logger.info(f"Starting processing of session {session_id} WITHOUT ROI alignment")
+        alignment_logger.info(f"Processing complete. Successfully processed {processed_count} of {num_sessions} sessions.")
         
-        try:
-            Process_Raw_Behaviour_Data(session, logger)
-            alignment_logger.info(f"Successfully processed session {session_id}")
-        except Exception as e:
-            alignment_logger.error(f"Failed to process session {session_id}: {str(e)}")
-            traceback.print_exc()
-
-    # Refresh directory info to see what was processed
-    directory_info = Cohort_folder(cohort_directory, multi=False, plot=False, OEAB_legacy=False).cohort
-    
-    # Calculate how many sessions were successfully processed
-    processed_count = 0
-    for mouse in directory_info["mice"]:
-        for session in directory_info["mice"][mouse]["sessions"]:
-            if directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"]:
-                processed_count += 1
-    
-    alignment_logger.info(f"Processing complete. Successfully processed {processed_count} of {num_sessions} sessions.")
-    
-    # print total time taken in minutes and seconds, rounded to whole numbers  
-    total_time = time.perf_counter() - total_start_time
-    minutes = int(total_time // 60)
-    seconds = int(total_time % 60)
-    print(f"Total time taken: {minutes} minutes, {seconds} seconds")
-    alignment_logger.info(f"Total time taken: {minutes} minutes, {seconds} seconds")
+        # print total time taken in minutes and seconds, rounded to whole numbers  
+        total_time = time.perf_counter() - total_start_time
+        minutes = int(total_time // 60)
+        seconds = int(total_time % 60)
+        print(f"Total time taken: {minutes} minutes, {seconds} seconds")
+        alignment_logger.info(f"Total time taken: {minutes} minutes, {seconds} seconds")
 
 if __name__ == "__main__":
     main_MP()
