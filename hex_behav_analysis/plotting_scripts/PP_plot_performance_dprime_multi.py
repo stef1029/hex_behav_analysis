@@ -122,7 +122,11 @@ def plot_dprime_by_angle(sessions_input,
         data_sets = {}
         data_sets['mice'], data_sets['total_trials'] = get_trials(sessions)
 
-        n = len(data_sets['total_trials']['all_trials'])
+        # Calculate n based on available trial types instead of assuming 'all_trials' exists
+        n = 0
+        for mode in cue_modes:
+            if mode in data_sets['total_trials']:
+                n += len(data_sets['total_trials'][mode])
         if n == 0:
             continue
 
@@ -133,6 +137,10 @@ def plot_dprime_by_angle(sessions_input,
 
         # Process each cue mode
         for cue_group in cue_modes:
+            # Check if there are any trials for this cue group
+            if cue_group not in data_sets['total_trials'] or not data_sets['total_trials'][cue_group]:
+                # Skip this cue group if there are no trials
+                continue
             plotting_data = {
                 'dprime': [],
                 'dprime_sem': [],
@@ -211,6 +219,40 @@ def plot_dprime_by_angle(sessions_input,
                     'response_data': response_data
                 })
 
+            # Add before the line that's causing the error (line 224)
+            print(f"Debug - Cue Group: {cue_group}")
+            for mouse_id in data_sets['mice']:
+                mouse_data = data_sets['mice'][mouse_id][cue_group]
+                print(f"  Mouse {mouse_id} keys: {list(mouse_data.keys())}")
+                
+                # Check if response_data exists and has any entries
+                if 'response_data' in mouse_data:
+                    has_trials = any(mouse_data['response_data'].get(bin_start, {}).get('total_signal_trials', 0) > 0 
+                                    for bin_start in response_data)
+                    print(f"  Mouse {mouse_id} has trials: {has_trials}")
+                    
+                    # Check if the mouse has any hits or false alarms
+                    total_hits = sum(mouse_data['response_data'].get(bin_start, {}).get('hits', 0) 
+                                    for bin_start in response_data)
+                    total_fas = sum(mouse_data['response_data'].get(bin_start, {}).get('false_alarms', 0) 
+                                    for bin_start in response_data)
+                    print(f"  Mouse {mouse_id} total hits: {total_hits}, total false alarms: {total_fas}")
+                
+                # Print trial count for this mouse/cue group
+                if 'trials' in mouse_data:
+                    print(f"  Mouse {mouse_id} trial count: {len(mouse_data['trials'])}")
+                    
+                    # Additional check - how many trials have valid data
+                    valid_trials = 0
+                    for trial in mouse_data['trials']:
+                        if (trial.get("turn_data") is not None and
+                            trial["turn_data"].get("left_ear_likelihood", 1) >= likelihood_threshold and
+                            trial["turn_data"].get("right_ear_likelihood", 1) >= likelihood_threshold and
+                            trial.get("next_sensor") is not None and
+                            trial["turn_data"].get("port_touched_angle") is not None):
+                            valid_trials += 1
+                    print(f"  Mouse {mouse_id} valid trials: {valid_trials}")
+                    
             # Calculate statistics across mice
             if data_sets['mice']:
                 dprime_data = np.array([data_sets['mice'][mouse][cue_group]['dprime'] 
@@ -234,8 +276,14 @@ def plot_dprime_by_angle(sessions_input,
                     plot_data = np.append(plotting_data['dprime'], plotting_data['dprime'][0])
                     error_data = np.append(plotting_data['dprime_sem'], plotting_data['dprime_sem'][0])
 
-                    color = colors_list[list(sessions_dict.keys()).index(dataset_name)]
-                    ax.plot(angles_rad, plot_data, marker='o', label=dataset_name, color=color)
+                    color = colors.get(cue_group, (0.5, 0.5, 0.5)) \
+                        if len(cue_modes) > 1 else colors_list[list(sessions_dict.keys()).index(dataset_name)]
+                    
+                    if len(cue_modes) > 1:
+                        label = cue_group
+                    else:
+                        label = dataset_name
+                    ax.plot(angles_rad, plot_data, marker='o', label=label, color=color)
 
                     if error_bars == 'SEM':
                         ax.fill_between(angles_rad, plot_data - error_data, plot_data + error_data,
