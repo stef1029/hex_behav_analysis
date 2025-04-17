@@ -34,7 +34,7 @@ def calc_dprime(hits, total_signal_trials, false_alarms, total_noise_trials, adj
         return 0
 
 def plot_dprime_by_angle(sessions_input, 
-                        plot_title='title',
+                        plot_title='',
                         x_title='',
                         y_title='', 
                         bin_mode='manual', 
