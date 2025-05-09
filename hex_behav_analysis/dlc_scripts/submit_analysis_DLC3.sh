@@ -22,7 +22,7 @@ echo "Processing video: $VIDEO_PATH on GPU: $GPU_ID"
 conda activate DEEPLABCUT3
 
 # cd "/cephfs2/srogers/New_analysis_pipeline/Scripts"
-cd "/lmb/home/srogers/dev/projects/July_cohort_scripts/hex_behav_analysis/dlc_scripts"
+cd "/lmb/home/srogers/Dev/projects/hex_behav_analysis/hex_behav_analysis/dlc_scripts"
 
 # Ensure your Python script can take a video path and a GPU ID as arguments
 python batch_analyse.py "$VIDEO_PATH" "$GPU_ID"
