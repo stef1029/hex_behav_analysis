@@ -5,7 +5,7 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 
 # Calculate the GPU ID to use by this task
-NUM_GPUS=1
+NUM_GPUS=8
 GPU_ID=$((SLURM_ARRAY_TASK_ID % NUM_GPUS))
 
 # Define the index of the video this particular job should process
