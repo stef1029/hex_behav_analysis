@@ -150,14 +150,14 @@ def main():
         logging.info("Starting processing script")
         
         # Set your source and destination directories here
-        source_directory = Path(r'/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE')
+        source_directory = Path(r'/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ')
         # source_directory = Path(r'/cephfs2/dwelch/Behaviour/November_cohort')
-        destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/2501_Lynn_EXCITE_portable')
+        destination_directory = Path(r'/cephfs2/srogers/Behaviour code/Portable_data/sep')
 
         # Specify the session IDs you want to process
         # Leave as None to process all sessions, or specify a list of session IDs
         # Example: selected_sessions = ['session1', 'session2', 'session3']
-        selected_sessions = None  # Change this to a list of sessions to process specific sessions
+        selected_sessions = []  # Change this to a list of sessions to process specific sessions
         
         # Log the directories being used
         logging.info(f"Source directory: {source_directory}")
