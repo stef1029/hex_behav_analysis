@@ -462,57 +462,57 @@ def main_MP():
         num_sessions = 0
         
         # Option to force reprocessing even if already analyzed
-        refresh = False
+        refresh = True
         
         # Option to only process sessions with ROI data
-        only_process_roi_sessions = True
+        only_process_roi_sessions = False
 
         # session_to_process = "250131_150005_wtjp273-3f"
         
-        # for mouse in directory_info["mice"]:
-        #     for session in directory_info["mice"][mouse]["sessions"]:
-        #         num_sessions += 1
-        #         session_dir = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+        for mouse in directory_info["mice"]:
+            for session in directory_info["mice"][mouse]["sessions"]:
+                num_sessions += 1
+                session_dir = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
                 
-        #         # Check if the session has ROI data in the truncated_start_report folder
-        #         truncated_dir = session_dir / "truncated_start_report"
-        #         has_roi_data = (truncated_dir.exists() and 
-        #                     any(f.name.endswith("_brightness_data.csv") 
-        #                         for f in truncated_dir.glob("*")))
+                # Check if the session has ROI data in the truncated_start_report folder
+                truncated_dir = session_dir / "truncated_start_report"
+                has_roi_data = (truncated_dir.exists() and 
+                            any(f.name.endswith("_brightness_data.csv") 
+                                for f in truncated_dir.glob("*")))
                 
-        #         # Check if the session needs processing
-        #         needs_processing = (not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] or refresh)
-        #         raw_data_present = directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"]
+                # Check if the session needs processing
+                needs_processing = (not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] or refresh)
+                raw_data_present = directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"]
                 
-        #         # Filter by date if needed (only process sessions after a certain date)
-        #         date = session[:6]
-        #         meets_date_criteria = int(date) >= 241001  # Only process sessions after 2024-10-01
+                # Filter by date if needed (only process sessions after a certain date)
+                date = session[:6]
+                meets_date_criteria = int(date) >= 241001  # Only process sessions after 2024-10-01
                 
-        #         if raw_data_present and needs_processing and meets_date_criteria:
-        #             if has_roi_data:
-        #                 sessions_with_roi.append(session)
-        #                 alignment_logger.info(f"Session {session} has ROI data available for alignment")
-        #                 if not only_process_roi_sessions:
-        #                     sessions_to_process.append(Cohort.get_session(session))
-        #             else:
-        #                 sessions_without_roi.append(session)
-        #                 if not only_process_roi_sessions:
-        #                     sessions_to_process.append(Cohort.get_session(session))
+                if raw_data_present and needs_processing and meets_date_criteria:
+                    if has_roi_data:
+                        sessions_with_roi.append(session)
+                        alignment_logger.info(f"Session {session} has ROI data available for alignment")
+                        if not only_process_roi_sessions:
+                            sessions_to_process.append(Cohort.get_session(session))
+                    else:
+                        sessions_without_roi.append(session)
+                        if not only_process_roi_sessions:
+                            sessions_to_process.append(Cohort.get_session(session))
                 
-        #         # If we only want to process ROI sessions and this session has ROI data
-        #         if only_process_roi_sessions and raw_data_present and has_roi_data:
-        #             sessions_to_process.append(Cohort.get_session(session))
+                # If we only want to process ROI sessions and this session has ROI data
+                if only_process_roi_sessions and raw_data_present and has_roi_data:
+                    sessions_to_process.append(Cohort.get_session(session))
 
-        # # Log summary of what we found
-        # alignment_logger.info(f"Found {len(sessions_with_roi)} sessions with ROI data")
-        # alignment_logger.info(f"Found {len(sessions_without_roi)} sessions without ROI data")
+        # Log summary of what we found
+        alignment_logger.info(f"Found {len(sessions_with_roi)} sessions with ROI data")
+        alignment_logger.info(f"Found {len(sessions_without_roi)} sessions without ROI data")
         
         # Process the selected sessions
         print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
         alignment_logger.info(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
-        sessions_to_process = ["250205_190300_wtjp280-4f"]
-        sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
+        # sessions_to_process = ["250205_190300_wtjp280-4f"]
+        # sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
 
         for session in sessions_to_process:
             session_id = session.get('session_id')
