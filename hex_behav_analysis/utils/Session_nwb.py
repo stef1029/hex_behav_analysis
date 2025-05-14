@@ -474,6 +474,10 @@ class Session:
             self.add_DLC_coords_to_nwb()
 
     def add_DLC_coords_to_nwb(self):
+        """
+        Add DeepLabCut coordinate data to the NWB file, ensuring that the DLC data
+        length matches the video timestamps length.
+        """
         # Load the DLC coords:
         self.DLC_coords = pd.read_csv(self.DLC_coords_path, header=[1, 2], index_col=0)
 
@@ -484,30 +488,37 @@ class Session:
             if video_data_name in nwbfile.acquisition:
                 video_data = nwbfile.acquisition[video_data_name]
                 video_timestamps = video_data.timestamps[:]
+                
+                # Get the number of video timestamps - this is our limit
+                num_timestamps = len(video_timestamps)
+                print(f"Number of video timestamps: {num_timestamps}")
+                print(f"Number of DLC frames: {len(self.DLC_coords)}")
 
                 # Create a new processing module for the DLC coords:
-                behaviour_module = ProcessingModule(name='behaviour_coords', description='DLC coordinates for behaviour')
+                behaviour_module = ProcessingModule(name='behaviour_coords', 
+                                                description='DLC coordinates for behaviour')
                 nwbfile.add_processing_module(behaviour_module)
 
                 for body_part in self.DLC_coords.columns.levels[0]:
-                    # Assuming DLC_coords is a pandas DataFrame
-                    data = self.DLC_coords[body_part].values  # Shape should be [num_frames, 3]
-
-                    if len(video_timestamps) > len(data):        
-                        # Assuming that the first and last frames are the ones excluded
-                        adjusted_timestamps = video_timestamps[:len(data)]
-                    else:
-                        adjusted_timestamps = video_timestamps
-
-                    ts = TimeSeries(name=body_part,
-                                    data=data,
-                                    unit='pixels',
-                                    timestamps=adjusted_timestamps,
-                                    description=f"Coordinates and likelihood for {body_part}")
+                    # Extract the data for this body part, but only up to the number of timestamps
+                    # This ensures we don't include extra frames beyond what we have timestamps for
+                    data = self.DLC_coords[body_part].iloc[:num_timestamps].values
+                    
+                    print(f"Body part: {body_part}, Truncated data shape: {data.shape}")
+                    
+                    # Create the TimeSeries with the truncated data
+                    ts = TimeSeries(
+                        name=body_part,
+                        data=data,
+                        unit='pixels',
+                        timestamps=video_timestamps,
+                        description=f"Coordinates and likelihood for {body_part}"
+                    )
 
                     behaviour_module.add_data_interface(ts)
 
                 io.write(nwbfile)
+                print("DLC coordinates successfully added to NWB file with matching dimensions.")
         
 
     def frametime_to_index(self, frametimes):

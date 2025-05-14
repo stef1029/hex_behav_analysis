@@ -1,4 +1,4 @@
-from utils.Cohort_folder import Cohort_folder
+from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from pathlib import Path
 
     
@@ -16,6 +16,8 @@ def get_video_paths(cohort_info, mode):
                     if cohort_info["mice"][mouse]["sessions"][session]["processed_data"]["DLC"]["coords_csv"] == "None":
                         videos.append(video_directory)
                         print(video_directory)
+                    # else:
+                    #     print(cohort_info["mice"][mouse]["sessions"][session]["processed_data"]["DLC"]["coords_csv"])
         return videos
     
     elif mode == "label":
@@ -31,7 +33,7 @@ def get_video_paths(cohort_info, mode):
 
 if __name__ == "__main__":
 
-    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ")
+    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE/Experiment/Dan")
     
     cohort_info = Cohort_folder(cohort_directory, multi = True, OEAB_legacy = False).cohort
     # print(cohort_info)

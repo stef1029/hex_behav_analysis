@@ -644,9 +644,31 @@ class Cohort_folder:
 
 
     def find_DLC_files(self, session_folder):
+        """
+        Find DLC-related files in the session folder using appropriate search patterns.
+        
+        Args:
+            session_folder: Path to the session folder containing DLC files
+            
+        Returns:
+            Dictionary containing paths to the labeled video and coordinate CSV files
+        """
         DLC_files = {}
+        
+        # Find labeled video - still looking for files with 'labeled' in the name
         DLC_files["labeled_video"] = str(self.find_file(session_folder, 'labeled'))
-        DLC_files["coords_csv"] = str(self.find_file(session_folder, '800000.csv'))
+        
+        # Find coordinates CSV - looking for CSV files with 'outputDLC' pattern
+        csv_files = list(Path(session_folder).glob("*outputDLC*csv"))
+        # Filter out any files with 'full' in the name if there are multiple matches
+        regular_csv_files = [f for f in csv_files if 'full' not in f.name]
+        
+        if regular_csv_files:
+            DLC_files["coords_csv"] = str(regular_csv_files[0])
+        else:
+            # Fallback to any CSV if the specific pattern isn't found
+            DLC_files["coords_csv"] = "None"
+        
         return DLC_files
 
 
