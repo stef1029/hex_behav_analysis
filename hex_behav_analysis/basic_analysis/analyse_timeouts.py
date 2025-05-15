@@ -153,3 +153,13 @@ if __name__ == "__main__":
     print("Successes: ", data[0])
     print("Failures: ", data[1])        
     print("Timeouts: ", data[2])
+
+    """
+    Ok so the end thing I want to get is for each day what was the proportion of timeouts per session over the mice in the group. 
+    This value can either be relative to the proportion of timeouts in the ctrol session before or to the baseline sessions done before the experiment.
+    I then plot this across the conditions.
+    So, at first I want to have a function that takes a session and returns the proportion of timeouts per session. This is basically done already above. 
+    Then the next thing would be taking a list of sessions and finding the average of those values across the sessions. 
+    One I have the average for a condition I can compare that to different conditions, so I need a function that takes a list of session lists, 
+    and returns a list containing the timeout proportions of the conditions. This can then be plotted. 
+    """
