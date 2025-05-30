@@ -150,9 +150,12 @@ def recover_frame_ids(json_file_path, verbose=False):
                 log_warning(f"JSON file {json_path.name} is missing required fields: {missing_fields}", verbose)
                 # Continue processing to add the missing fields
         
-        # Construct backup file path
-        base_name = json_path.stem.replace('_Tracker_data', '')
-        backup_path = json_path.parent / f"{base_name}_frame_ids_backup.txt"
+        # Construct backup file path - use the exact filename format you specified
+        backup_path = json_path.parent / "frame_ids_backup.txt"
+        
+        # Add more debug logging for backup file
+        log_debug(f"Looking for backup file at: {backup_path.absolute()}", verbose)
+        log_debug(f"Backup file exists: {backup_path.exists()}", verbose)
         
         if not backup_path.exists():
             log_error(f"Backup file not found: {backup_path}", verbose)
@@ -191,7 +194,7 @@ def recover_frame_ids(json_file_path, verbose=False):
             data['frame_rate'] = 30.0  # Default FPS value
             log_debug(f"Adding missing 'frame_rate' field with default value: {data['frame_rate']}", verbose)
             
-        if 'end_time' not in data:
+        if 'end_time' not in data or data['end_time'] == "":
             # Calculate end_time based on fps and number of frames
             fps = data['frame_rate']
             num_frames = len(frame_ids)
@@ -201,18 +204,36 @@ def recover_frame_ids(json_file_path, verbose=False):
                 duration_seconds = num_frames / fps
                 
                 try:
-                    # Try to parse the start time
-                    start_dt = datetime.strptime(data['start_time'], "%Y-%m-%d %H:%M:%S")
+                    # Try multiple date formats for start_time
+                    start_dt = None
+                    formats_to_try = [
+                        "%Y-%m-%d %H:%M:%S",  # Standard format
+                        "%y%m%d_%H%M%S",      # Format like "241017_151132"
+                        "%y%m%d%H%M%S"        # Another possible format
+                    ]
                     
-                    # Add the duration to get the end time
-                    # Calculate hours, minutes, seconds from total seconds
-                    hours, remainder = divmod(duration_seconds, 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    
-                    # Add time to start_dt
-                    end_dt = start_dt + timedelta(hours=hours, minutes=minutes, seconds=seconds)
-                    data['end_time'] = end_dt.strftime("%Y-%m-%d %H:%M:%S")
-                    log_debug(f"Calculated end_time based on {num_frames} frames at {fps} fps = {duration_seconds:.2f}s", verbose)
+                    for date_format in formats_to_try:
+                        try:
+                            start_dt = datetime.strptime(data['start_time'], date_format)
+                            log_debug(f"Successfully parsed start_time with format: {date_format}", verbose)
+                            break
+                        except ValueError:
+                            continue
+                            
+                    if start_dt:
+                        # Add the duration to get the end time
+                        # Calculate hours, minutes, seconds from total seconds
+                        hours, remainder = divmod(duration_seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        
+                        # Add time to start_dt
+                        end_dt = start_dt + timedelta(hours=hours, minutes=minutes, seconds=seconds)
+                        data['end_time'] = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+                        log_debug(f"Calculated end_time based on {num_frames} frames at {fps} fps = {duration_seconds:.2f}s", verbose)
+                    else:
+                        # If all parsing attempts fail
+                        raise ValueError(f"Could not parse start_time: {data['start_time']}")
+                        
                 except Exception as e:
                     # If parsing fails, just set end_time to duration from now
                     log_warning(f"Failed to parse start_time: {e}", verbose)
@@ -225,9 +246,26 @@ def recover_frame_ids(json_file_path, verbose=False):
                 # Fallback to a default 5 minute duration if we can't calculate
                 log_warning(f"Could not calculate accurate duration: fps={fps}, frames={num_frames}", verbose)
                 try:
-                    start_dt = datetime.strptime(data['start_time'], "%Y-%m-%d %H:%M:%S")
-                    end_dt = start_dt + timedelta(minutes=5)
-                    data['end_time'] = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    # Try multiple formats for start_time
+                    start_dt = None
+                    formats_to_try = [
+                        "%Y-%m-%d %H:%M:%S",
+                        "%y%m%d_%H%M%S",
+                        "%y%m%d%H%M%S"
+                    ]
+                    
+                    for date_format in formats_to_try:
+                        try:
+                            start_dt = datetime.strptime(data['start_time'], date_format)
+                            break
+                        except ValueError:
+                            continue
+                            
+                    if start_dt:
+                        end_dt = start_dt + timedelta(minutes=5)
+                        data['end_time'] = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        raise ValueError("Could not parse start_time")
                 except Exception:
                     now = datetime.now()
                     data['end_time'] = (now + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
@@ -250,6 +288,7 @@ def recover_frame_ids(json_file_path, verbose=False):
     except Exception as e:
         log_error(f"Error processing {json_file_path}: {str(e)}", verbose)
         return False
+    
 
 def recover_from_backup(backup_file_path, verbose=False):
     """
@@ -347,6 +386,7 @@ def recover_from_backup(backup_file_path, verbose=False):
                     # If there's a third column with timestamps, collect it
                     if len(row) >= 3 and row[2]:
                         try:
+                            print("Found 3 rows in csv file")
                             timestamp = float(row[2])
                             actual_timestamps.append(timestamp)
                         except ValueError:
@@ -518,6 +558,18 @@ def process_session_folder(session_path, verbose=False):
     # Process camera frame ID backups
     tracker_jsons = list(session_path.glob("*_Tracker_data.json"))
     log_info(f"Found {len(tracker_jsons)} tracker JSON files", verbose)
+
+    # Check if backup exists but no JSON file exists
+    backup_path = session_path / "frame_ids_backup.txt"
+    if len(tracker_jsons) == 0 and backup_path.exists():
+        log_info(f"No JSON files found but backup exists, creating one", verbose)
+        # Create default JSON filename based on session path
+        json_file = session_path / f"{session_path.name}_Tracker_data.json"
+        # Create an empty JSON file 
+        with open(json_file, 'w') as f:
+            json.dump({}, f)
+        tracker_jsons = [json_file]  # Add to the list to process
+
     for json_file in tracker_jsons:
         try:
             log_info(f"\nChecking camera data: {json_file}", verbose)
@@ -531,13 +583,15 @@ def process_session_folder(session_path, verbose=False):
     
     return num_processed_arduino, num_processed_tracker
 
-def recover_crashed_sessions(directory, force=False, verbose=False):
+def recover_crashed_sessions(directory, target_sessions=None, force=False, verbose=False):
     """
     Process all session folders in a cohort directory, including mouse subfolders.
     Structure: cohort_folder/session_folder/mouse_folder/
     
     Args:
         directory (str or Path): Path to cohort directory
+        target_sessions (list): Optional list of session IDs to process (e.g., ['241017_151132'])
+                               If provided, only these sessions will be processed
         force (bool): If True, reprocess files even if they have marker files
         verbose (bool): Whether to print detailed information
     
@@ -547,7 +601,9 @@ def recover_crashed_sessions(directory, force=False, verbose=False):
     results = {
         'arduino_processed': 0,
         'tracker_processed': 0,
-        'errors': 0
+        'errors': 0,
+        'sessions_found': 0,
+        'sessions_processed': 0
     }
     
     try:
@@ -556,11 +612,25 @@ def recover_crashed_sessions(directory, force=False, verbose=False):
             log_error(f"Directory not found: {directory}", verbose)
             return results
         
-        # If force is True, remove all marker files first
+        # If force is True, remove all marker files first, optionally only for target sessions
         if force:
-            log_warning("Force mode enabled - removing all marker files", verbose)
+            log_warning("Force mode enabled - removing marker files", verbose)
+            
+            # Define a function to check if a marker file belongs to a target session
+            def is_target_marker(marker_path):
+                if target_sessions is None:
+                    return True  # Process all if no targets specified
+                
+                marker_str = str(marker_path)
+                return any(session_id in marker_str for session_id in target_sessions)
+            
+            # Find and remove marker files
             marker_files = list(directory.glob("**/*_hdf5_conversion_processed")) + \
                           list(directory.glob("**/*_frame_id_recovery_processed"))
+            
+            # Filter to only target sessions if specified
+            marker_files = [m for m in marker_files if is_target_marker(m)]
+            
             for marker in marker_files:
                 try:
                     marker.unlink()
@@ -569,15 +639,26 @@ def recover_crashed_sessions(directory, force=False, verbose=False):
                     log_error(f"Could not remove marker file {marker}: {str(e)}", verbose)
                     results['errors'] += 1
         
+        # Define a function to check if a folder is a target session
+        def is_target_session(folder_path):
+            if target_sessions is None:
+                return True  # Process all if no targets specified
+            
+            folder_str = str(folder_path)
+            return any(session_id in folder_str for session_id in target_sessions)
+        
         # Check if this is a session folder directly (files present)
         has_backups = len(list(directory.glob("*-backup.csv"))) > 0
         has_jsons = len(list(directory.glob("*_Tracker_data.json"))) > 0
         
-        if has_backups or has_jsons:
-            log_info(f"\nDirectory appears to be a session folder: {directory}", verbose)
+        if (has_backups or has_jsons) and is_target_session(directory):
+            log_info(f"\nDirectory appears to be a target session folder: {directory}", verbose)
+            results['sessions_found'] += 1
             arduino_count, tracker_count = process_session_folder(directory, verbose)
             results['arduino_processed'] += arduino_count
             results['tracker_processed'] += tracker_count
+            if arduino_count > 0 or tracker_count > 0:
+                results['sessions_processed'] += 1
             return results
         
         # Otherwise, look for session folders (first level subdirectories)
@@ -585,15 +666,23 @@ def recover_crashed_sessions(directory, force=False, verbose=False):
         log_info(f"Found {len(session_folders)} subfolders to process", verbose)
         
         for session_folder in session_folders:
+            # Skip if not a target session
+            if not is_target_session(session_folder):
+                log_debug(f"Skipping non-target session: {session_folder}", verbose)
+                continue
+                
             # Check if this is a session folder with files
             has_session_backups = len(list(session_folder.glob("*-backup.csv"))) > 0
             has_session_jsons = len(list(session_folder.glob("*_Tracker_data.json"))) > 0
             
             if has_session_backups or has_session_jsons:
-                log_info(f"\nProcessing session folder directly: {session_folder.name}", verbose)
+                log_info(f"\nProcessing target session folder: {session_folder.name}", verbose)
+                results['sessions_found'] += 1
                 arduino_count, tracker_count = process_session_folder(session_folder, verbose)
                 results['arduino_processed'] += arduino_count
                 results['tracker_processed'] += tracker_count
+                if arduino_count > 0 or tracker_count > 0:
+                    results['sessions_processed'] += 1
             else:
                 log_info(f"\nProcessing subfolder: {session_folder.name}", verbose)
                 
@@ -604,20 +693,33 @@ def recover_crashed_sessions(directory, force=False, verbose=False):
                     
                 # Find all mouse folders within this session folder
                 mouse_folders = [f for f in session_folder.iterdir() if f.is_dir()]
-                log_info(f"Found {len(mouse_folders)} mouse folders in {session_folder.name}", verbose)
                 
-                for mouse_folder in mouse_folders:
+                # Filter mouse folders to only target sessions if specified
+                target_mouse_folders = [f for f in mouse_folders if is_target_session(f)]
+                
+                if target_mouse_folders:
+                    log_info(f"Found {len(target_mouse_folders)} target mouse folders in {session_folder.name}", verbose)
+                else:
+                    log_debug(f"No target mouse folders found in {session_folder.name}", verbose)
+                    continue
+                
+                for mouse_folder in target_mouse_folders:
                     if mouse_folder.name.lower() == "logs":
                         log_warning(f"Skipping logs directory: {mouse_folder}", verbose)
                         continue
                         
-                    log_info(f"\nProcessing mouse folder: {mouse_folder.name}", verbose)
+                    log_info(f"\nProcessing target mouse folder: {mouse_folder.name}", verbose)
+                    results['sessions_found'] += 1
                     arduino_count, tracker_count = process_session_folder(mouse_folder, verbose)
                     results['arduino_processed'] += arduino_count
                     results['tracker_processed'] += tracker_count
+                    if arduino_count > 0 or tracker_count > 0:
+                        results['sessions_processed'] += 1
         
         if verbose:
             log_success("\nRecovery process summary:")
+            log_success(f"  Target sessions found: {results['sessions_found']}")
+            log_success(f"  Target sessions processed: {results['sessions_processed']}")
             log_success(f"  Arduino DAQ files processed: {results['arduino_processed']}")
             log_success(f"  Tracker JSON files processed: {results['tracker_processed']}")
             log_warning(f"  Errors encountered: {results['errors']}")
@@ -633,3 +735,17 @@ def recover_crashed_sessions(directory, force=False, verbose=False):
 # from recovery_script import recover_crashed_sessions
 # results = recover_crashed_sessions("E:/Data/Cohort5", force=False, verbose=True)
 # print(f"Processed {results['arduino_processed']} Arduino files and {results['tracker_processed']} tracker files")
+
+def main():
+    # Manual usage of script:
+
+    cohort_directory = r"Z:\Behaviour code\2409_September_cohort\DATA_ArduinoDAQ"
+    force_reprocess = True  # Set to True to force reprocessing of all files
+    verbose_mode = True  # Set to True for detailed output
+
+    target_sessions = ["241017_151131"]  # Example target sessions
+    results = recover_crashed_sessions(cohort_directory, force=force_reprocess, verbose=verbose_mode, target_sessions=target_sessions)
+    print(f"Processed {results['arduino_processed']} Arduino files and {results['tracker_processed']} tracker files")
+
+if __name__ == "__main__":
+    main()

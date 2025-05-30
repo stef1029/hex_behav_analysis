@@ -94,15 +94,14 @@ class DAQViewer:
 
 def main():
 
-    show = False
-    save = True
+    show = True
+    save = False
 
     # file = r"/cephfs2/dwelch/Behaviour/November_cohort/250131_112302/250131_112303_wtjp273-3f/250131_112303_wtjp273-3f-ArduinoDAQ.h5"
-    file = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE/250205_190258/250205_190300_wtjp280-4f/250205_190300_wtjp280-4f-ArduinoDAQ.h5"
+    file = r"Z:\Behaviour code\2409_September_cohort\DATA_ArduinoDAQ\241017_151131\241017_151132_mtao89-1e\241017_151132_mtao89-1e-ArduinoDAQ.h5"
     channel = 'CAMERA'
     start = 0 
-    end = 1000
-
+    end = 10000
     # Initialize DAQViewer with the provided file
     viewer = DAQViewer(file)
     

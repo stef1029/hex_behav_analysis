@@ -462,35 +462,20 @@ class Process_Raw_Behaviour_Data:
     def get_scales_data(self):
         """
         Retrieves scales data from the sendkey logs and assigns it to the scales_data attribute.
+        Handles both wireless and wired scales types.
         """
         func_name = "get_scales_data"
         scales_logs = self.sendkey_logs.scales_data
 
-        # Load scales channel data from the HDF5 file
-        with h5py.File(self.arduino_DAQ_Path, 'r') as h5f:
-            scales_channel_data = np.array(h5f['channel_data']['SCALES'])
-            
-            # Decide which timestamps to use
-            if self.sync_with_ephys and self.ephys_timestamps is not None:
-                # Use ephys timestamps instead of original ones
-                message_ids = np.array(h5f['message_ids'])
-                ephys_ts_dict = {int(msg_id): ts for msg_id, ts in zip(
-                    self.ephys_timestamps["message_ids"], 
-                    self.ephys_timestamps["timestamps"]
-                )}
-                scales_timestamps = np.array([ephys_ts_dict.get(int(msg_id), 0) for msg_id in message_ids])
-                self.print.log(func_name, "Using ephys synchronized timestamps for scales data")
-            else:
-                # Use original timestamps
-                scales_timestamps = np.array(h5f['timestamps'])
-
-        # Determine the type of scales based on the logs
+        # Determine the type of scales based on the logs before trying to access the HDF5 file
         try:
             scales_type = 'wired' if len(scales_logs[0]) == 3 else 'wireless'
         except IndexError:
             error_msg = "Error: No scales data found in sendkey logs. Processing aborted."
             self.print.error(func_name, error_msg)
             raise Exception(error_msg)
+            
+        self.print.log(func_name, f"Detected scales type: {scales_type}")
 
         # Initialize the scales_data dictionary with consistent keys
         self.scales_data = {
@@ -506,6 +491,37 @@ class Process_Raw_Behaviour_Data:
         if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
             self.scales_data["ephys_timestamps"] = None
 
+        # Get timestamps from the HDF5 file - needed for both types
+        with h5py.File(self.arduino_DAQ_Path, 'r') as h5f:
+            # Decide which timestamps to use
+            if self.sync_with_ephys and self.ephys_timestamps is not None:
+                # Use ephys timestamps instead of original ones
+                message_ids = np.array(h5f['message_ids'])
+                ephys_ts_dict = {int(msg_id): ts for msg_id, ts in zip(
+                    self.ephys_timestamps["message_ids"], 
+                    self.ephys_timestamps["timestamps"]
+                )}
+                self.timestamps = np.array([ephys_ts_dict.get(int(msg_id), 0) for msg_id in message_ids])
+                self.print.log(func_name, "Using ephys synchronized timestamps for data")
+            else:
+                # Use original timestamps
+                self.timestamps = np.array(h5f['timestamps'])
+            
+            # Only try to get SCALES channel data if scales_type is wired
+            if scales_type == 'wired':
+                try:
+                    # Check if SCALES channel exists first
+                    if 'SCALES' in h5f['channel_data']:
+                        scales_channel_data = np.array(h5f['channel_data']['SCALES'])
+                    else:
+                        self.print.warning(func_name, "SCALES channel not found in HDF5 file. Treating as wireless scales.")
+                        scales_type = 'wireless'  # Override to wireless if SCALES channel doesn't exist
+                        self.scales_data["scales_type"] = 'wireless'
+                except Exception as e:
+                    self.print.warning(func_name, f"Error accessing SCALES channel: {e}. Treating as wireless scales.")
+                    scales_type = 'wireless'  # Override to wireless if there's an error
+                    self.scales_data["scales_type"] = 'wireless'
+
         if scales_type == 'wireless':
             length_timestamps = len(self.timestamps)
             length_scales = len(scales_logs)
@@ -513,6 +529,7 @@ class Process_Raw_Behaviour_Data:
             new_scales_timestamps = []
             new_ephys_scales_timestamps = [] if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array') else None
 
+            # Generate evenly spaced timestamps based on the available timestamps
             for i in range(0, length_timestamps, length_timestamps // length_scales):
                 try:
                     new_scales_timestamps.append(self.timestamps[i])
@@ -538,9 +555,14 @@ class Process_Raw_Behaviour_Data:
                 self.scales_data["ephys_timestamps"] = new_ephys_scales_timestamps
                 self.print.log(func_name, "Added ephys timestamps to wireless scales data")
 
-            self.print.log(func_name, "**Warning: Scales data not accurately timestamped.**")
+            self.print.log(func_name, "**Warning: Wireless scales data not accurately timestamped.**")
 
         elif scales_type == 'wired':
+            # We already verified SCALES channel exists for wired type
+            with h5py.File(self.arduino_DAQ_Path, 'r') as h5f:
+                scales_channel_data = np.array(h5f['channel_data']['SCALES'])
+                scales_timestamps = self.timestamps  # Use the timestamps we got earlier
+            
             # Detect pulse transitions in the scales channel data
             low_to_high_transitions = np.where((scales_channel_data[:-1] == 0) & (scales_channel_data[1:] == 1))[0]
 
@@ -680,23 +702,23 @@ def main():
     sessions_to_process = []
     num_sessions = 0
 
-    refresh = False
+    refresh = True
     
-    # for mouse in directory_info["mice"]:
-    #     for session in directory_info["mice"][mouse]["sessions"]:
-    #         num_sessions += 1
-    #         # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-    #         if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-    #             if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-    #                 date = session[:6]
-    #                 if int(date) >= 241001:
-    #                     sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
+    for mouse in directory_info["mice"]:
+        for session in directory_info["mice"][mouse]["sessions"]:
+            num_sessions += 1
+            # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+            if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
+                if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
+                    date = session[:6]
+                    if int(date) >= 241001:
+                        sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
 
-    # print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
+    print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
     # # sessions_to_process = ['240909_140114_mtao89-1d']
-    sessions_to_process = ["250205_190300_wtjp280-4f"]
-    sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
+    # sessions_to_process = ["241017_151132_wtjx249-4b", "241017_151132_mtao89-1e"]
+    # sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
 
     for session in sessions_to_process:
         print(f"\n\nProcessing {session.get('directory')}...")
