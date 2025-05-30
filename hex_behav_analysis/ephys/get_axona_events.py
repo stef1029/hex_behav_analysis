@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# event_parser.py
+# event_parser.py - Parses binary event data and creates timestamp files
 import sys
 import struct
 import base64
@@ -7,7 +7,12 @@ import json
 import os
 import h5py
 import numpy as np
+import traceback
 from typing import List, Tuple, Dict, Optional, Union
+
+# Import the analysis module
+from hex_behav_analysis.ephys.ephys_sync_timestamp_analysis import analyze_timestamps, save_analysis_plots
+from hex_behav_analysis.ephys.debug_inp_files import inspect_file
 
 def parse_binary_events(file_path: str, target_pin: int, verbose: bool = False) -> List[Tuple[float, float]]:
     """
@@ -38,11 +43,20 @@ def parse_binary_events(file_path: str, target_pin: int, verbose: bool = False) 
         pass
     
     # Convert to string for header parsing
-    content_str = content.decode('utf-8', errors='replace')
+    content_str = content.decode('latin-1', errors='replace')
     
     # Find the start of binary data
-    data_start_index = content_str.find("data_start")
+    data_start_index = content_str.lower().find("data_start".lower())
     if data_start_index == -1:
+        # Debug the file content
+        print(f"File size: {len(content)} bytes")
+        print(f"First 200 characters: {content_str[:200]}")
+        # List potential markers that might be present
+        possible_markers = ["data", "start", "begin", "header"]
+        for marker in possible_markers:
+            pos = content_str.find(marker)
+            if pos != -1:
+                print(f"Found '{marker}' at position {pos}")
         raise ValueError("Could not find 'data_start' marker in the file")
     
     # Extract and parse header
@@ -179,17 +193,10 @@ def parse_binary_events(file_path: str, target_pin: int, verbose: bool = False) 
     return pin_events
 
 def get_metadata(file_path: str) -> Dict[str, str]:
-    """
-    Extract metadata from the binary file header.
-    
-    Args:
-        file_path (str): Path to the binary data file
-    
-    Returns:
-        Dict[str, str]: Dictionary of metadata key-value pairs
-    """
     with open(file_path, 'rb') as f:
         content = f.read()
+
+    # inspect_file(file_path)  # Inspect the file for encoding issues
     
     # Check if the file is base64 encoded
     try:
@@ -199,7 +206,9 @@ def get_metadata(file_path: str) -> Dict[str, str]:
     except:
         pass
     
+    # Always use latin-1 encoding, which can handle any byte value
     content_str = content.decode('utf-8', errors='replace')
+    
     data_start_index = content_str.find("data_start")
     
     if data_start_index == -1:
@@ -218,12 +227,13 @@ def get_metadata(file_path: str) -> Dict[str, str]:
     
     return metadata
 
-def parse_all_pins(file_path: str) -> Dict[int, List[Tuple[float, float]]]:
+def parse_all_pins(file_path: str, verbose: bool = False) -> Dict[int, List[Tuple[float, float]]]:
     """
     Parse a binary file with event data and extract events for all pins.
     
     Args:
         file_path (str): Path to the binary data file
+        verbose (bool): Whether to print detailed information
     
     Returns:
         Dict[int, List[Tuple[float, float]]]: Dictionary mapping pin numbers to lists
@@ -235,21 +245,32 @@ def parse_all_pins(file_path: str) -> Dict[int, List[Tuple[float, float]]]:
         events = parse_binary_events(file_path, pin, verbose=False)
         if events:  # Only include pins that have events
             all_pin_events[pin] = events
+            if verbose:
+                print(f"Pin {pin}: Found {len(events)} events")
     return all_pin_events
 
-def save_to_json(data: Dict[int, List[Tuple[float, float]]], metadata: Dict[str, str], output_path: str) -> None:
+def save_to_json(data: Dict[int, List[Tuple[float, float]]], metadata: Dict[str, str], 
+                 analysis: Dict[int, Dict[str, float]], output_path: str) -> None:
     """
-    Save parsed event data and metadata to a JSON file.
+    Save parsed event data, metadata, and analysis to a JSON file.
     
     Args:
         data (Dict[int, List[Tuple[float, float]]]): Dictionary mapping pin numbers to event lists
         metadata (Dict[str, str]): Metadata dictionary
+        analysis (Dict[int, Dict[str, float]]): Analysis results for each pin
         output_path (str): Path to save the JSON file
     """
+    # Merge analysis results into metadata
+    combined_metadata = metadata.copy()
+    for pin, analysis_data in analysis.items():
+        for key, value in analysis_data.items():
+            combined_metadata[f"pin_{pin}_{key}"] = value
+    
     # Convert the data structure to be JSON serializable
     json_data = {
-        "metadata": metadata,
-        "pins": {}
+        "metadata": combined_metadata,
+        "pins": {},
+        "analysis": analysis
     }
     
     for pin, events in data.items():
@@ -262,25 +283,32 @@ def save_to_json(data: Dict[int, List[Tuple[float, float]]], metadata: Dict[str,
     with open(output_path, 'w') as f:
         json.dump(json_data, f, indent=2)
 
-def save_to_hdf5(data: Dict[int, List[Tuple[float, float]]], metadata: Dict[str, str], output_path: str) -> None:
+def save_to_hdf5(data: Dict[int, List[Tuple[float, float]]], metadata: Dict[str, str], 
+                 analysis: Dict[int, Dict[str, float]], output_path: str) -> None:
     """
-    Save parsed event data and metadata to an HDF5 file.
+    Save parsed event data, metadata, and analysis to an HDF5 file.
     
     Args:
         data (Dict[int, List[Tuple[float, float]]]): Dictionary mapping pin numbers to event lists
         metadata (Dict[str, str]): Metadata dictionary
+        analysis (Dict[int, Dict[str, float]]): Analysis results for each pin
         output_path (str): Path to save the HDF5 file
     """
     with h5py.File(output_path, 'w') as f:
         # Create a metadata group
         meta_group = f.create_group('metadata')
         for key, value in metadata.items():
-            meta_group.attrs[key] = value
+            meta_group.attrs[key] = str(value)
         
-        # Create a pins group
-        pins_group = f.create_group('pins')
+        # Create an analysis group
+        analysis_group = f.create_group('analysis')
+        for pin, analysis_data in analysis.items():
+            pin_analysis = analysis_group.create_group(f'pin_{pin}')
+            for key, value in analysis_data.items():
+                pin_analysis.attrs[key] = value
         
         # Store each pin's data
+        pins_group = f.create_group('pins')
         for pin, events in data.items():
             if not events:
                 continue
@@ -308,15 +336,16 @@ def get_session_id_from_output_folder(output_folder: str) -> str:
     folder_name = os.path.basename(os.path.normpath(output_folder))
     return folder_name
 
-def process_file(file_path: str, output_folder: str, target_pin: Optional[int] = None, verbose: bool = False) -> None:
+def process_file(file_path: str, output_folder: str, target_pin: Optional[int] = None, 
+                generate_plots: bool = False, verbose: bool = False) -> None:
     """
-    Process a binary event file and save the results to JSON and HDF5 formats.
-    Output will contain high pulse events with timestamps and durations.
+    Process a binary event file, analyze timestamps, and save the results.
     
     Args:
         file_path (str): Path to the binary data file
         output_folder (str): Folder to save the output files
         target_pin (Optional[int]): The specific pin to process, or None to process all pins
+        generate_plots (bool): Whether to generate analysis plots
         verbose (bool): Whether to print detailed information during processing
     """
     # Ensure output folder exists
@@ -345,18 +374,43 @@ def process_file(file_path: str, output_folder: str, target_pin: Optional[int] =
         all_pin_events = {target_pin: events}
     else:
         # Process all pins
-        all_pin_events = parse_all_pins(file_path)
+        all_pin_events = parse_all_pins(file_path, verbose=verbose)
     
     if verbose:
         print(f"Processed {len(all_pin_events)} pins with events")
     
-    # Define output paths with the new naming scheme
+    # Analyze timestamps for each pin
+    all_pin_analysis = {}
+    for pin, events in all_pin_events.items():
+        if len(events) > 1:  # Need at least 2 events to analyze timing
+            pin_analysis = analyze_timestamps(events)
+            all_pin_analysis[pin] = pin_analysis
+            
+            if verbose:
+                print(f"\nAnalysis for Pin {pin}:")
+                for key, value in pin_analysis.items():
+                    print(f"  {key}: {value}")
+    
+    # Add summary to file metadata
+    for pin, analysis in all_pin_analysis.items():
+        metadata[f"pin_{pin}_pulse_count"] = str(analysis.get("pulse_count", 0))
+        metadata[f"pin_{pin}_mean_interval_ms"] = f"{analysis.get('mean_interval_ms', 0):.4f}"
+        metadata[f"pin_{pin}_missed_pulses"] = str(analysis.get("missed_pulse_count", 0))
+        metadata[f"pin_{pin}_missed_pulse_percent"] = f"{analysis.get('missed_pulse_percent', 0):.4f}%"
+        metadata[f"pin_{pin}_jitter_max_ms"] = f"{analysis.get('jitter_max_ms', 0):.4f}"
+        metadata[f"pin_{pin}_drift_rate_ms_per_s"] = f"{analysis.get('drift_rate_ms_per_s', 0):.6f}"
+    
+    # Define output paths with the naming scheme
     json_path = os.path.join(output_folder, f"{output_filename}.json")
     hdf5_path = os.path.join(output_folder, f"{output_filename}.h5")
     
     # Save the data
-    save_to_json(all_pin_events, metadata, json_path)
-    save_to_hdf5(all_pin_events, metadata, hdf5_path)
+    save_to_json(all_pin_events, metadata, all_pin_analysis, json_path)
+    save_to_hdf5(all_pin_events, metadata, all_pin_analysis, hdf5_path)
+    
+    # Generate analysis plots if requested
+    if generate_plots:
+        save_analysis_plots(all_pin_events, all_pin_analysis, output_folder, session_id, target_pin)
     
     if verbose:
         print(f"Saved JSON data to: {json_path}")
@@ -365,6 +419,9 @@ def process_file(file_path: str, output_folder: str, target_pin: Optional[int] =
         # Print summary information
         total_events = sum(len(events) for events in all_pin_events.values())
         print(f"Total events saved: {total_events}")
+        
+        if generate_plots:
+            print(f"Analysis plots saved to: {os.path.join(output_folder, 'analysis_plots')}")
 
 def main():
     """
@@ -372,18 +429,20 @@ def main():
     """
     import argparse
     
-    parser = argparse.ArgumentParser(description='Parse binary event data and save to JSON and HDF5 formats.')
+    parser = argparse.ArgumentParser(description='Parse binary event data, analyze timing, and save results.')
     parser.add_argument('file_path', help='Path to the binary event data file')
     parser.add_argument('--output-folder', '-o', default='./output', help='Folder to save output files (default: ./output)')
     parser.add_argument('--pin', '-p', type=int, help='Specific pin to process (0-15, default: process all pins)')
+    parser.add_argument('--plots', '-g', action='store_true', help='Generate analysis plots')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     
     args = parser.parse_args()
     
     try:
-        process_file(args.file_path, args.output_folder, args.pin, args.verbose)
+        process_file(args.file_path, args.output_folder, args.pin, args.plots, args.verbose)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
