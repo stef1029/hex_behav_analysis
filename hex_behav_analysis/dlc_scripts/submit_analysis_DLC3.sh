@@ -43,7 +43,7 @@ cd "/lmb/home/srogers/Dev/projects/hex_behav_analysis/hex_behav_analysis/dlc_scr
 
 # Run the Python script and capture its exit code
 echo "Running batch_analyse.py..."
-python batch_analyse.py "$VIDEO_PATH" "$GPU_ID"
+python batch_analyse.py "$VIDEO_PATH" "$GPU_ID" 
 PYTHON_EXIT_CODE=$?
 
 # Check if the Python script failed and rename the log file accordingly
