@@ -364,7 +364,9 @@ class Cohort_folder:
                 and (not self.ignore_tests or not self.is_test_session(subfolder.name))
             ]
 
-        cohort = {"Cohort name": self.cohort_directory.name, "mice": {}}
+        # get current date and time as string:
+        current_date = datetime.now().strftime("%Y%m%d_%H%M%S")
+        cohort = {"Cohort name": self.cohort_directory.name, "Time refreshed": current_date, "mice": {}}
         for session_folder in self.session_folders:
             mouse_ID = session_folder.name[14:]  # everything after "YYYYMMDD_HHMMSS_"
             if mouse_ID not in cohort["mice"]:
