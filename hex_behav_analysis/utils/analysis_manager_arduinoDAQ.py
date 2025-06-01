@@ -566,6 +566,11 @@ class Process_Raw_Behaviour_Data:
             # Detect pulse transitions in the scales channel data
             low_to_high_transitions = np.where((scales_channel_data[:-1] == 0) & (scales_channel_data[1:] == 1))[0]
 
+            # Filter transitions to ensure they're within bounds of the ephys timestamps array
+            if self.sync_with_ephys and hasattr(self, 'ephys_timestamps_array'):
+                max_index = len(self.ephys_timestamps_array) - 1
+                low_to_high_transitions = low_to_high_transitions[low_to_high_transitions + 1 <= max_index]
+                
             # Get the timestamps for each pulse
             scales_pulses = scales_timestamps[low_to_high_transitions + 1]  # Adding 1 for the high (1) point
             
@@ -581,6 +586,8 @@ class Process_Raw_Behaviour_Data:
             self.print.log(func_name, f"Num pulses: {len(scales_pulses)}")
             # Match pulse IDs to pulse timestamps
             scales_data_dict = {}
+            skipped_pulse_count = 0  # Counter for skipped pulses
+            
             for pulse_ID, weight in zip(pulse_IDs, weights):
                 if pulse_ID < len(scales_pulses):
                     scales_data_dict[pulse_ID] = {
@@ -592,7 +599,11 @@ class Process_Raw_Behaviour_Data:
                         if pulse_ID < len(ephys_scales_pulses):
                             scales_data_dict[pulse_ID]["ephys_timestamp"] = ephys_scales_pulses[pulse_ID]
                 else:
-                    self.print.log(func_name, f"**Warning: Pulse ID {pulse_ID} exceeds recorded scales pulses. Skipping.**")
+                    skipped_pulse_count += 1  # Increment counter instead of printing
+            
+            # Print a single summary line for skipped pulses
+            if skipped_pulse_count > 0:
+                self.print.log(func_name, f"**Warning: {skipped_pulse_count} pulse IDs exceed recorded scales pulses and were skipped.**")
 
             # Prepare the scales_data dictionary
             timestamps = []

@@ -33,7 +33,7 @@ def get_video_paths(cohort_info, mode):
 
 if __name__ == "__main__":
 
-    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE/Experiment/Dan")
+    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE/Experiment")
     
     cohort_info = Cohort_folder(cohort_directory, multi = True, OEAB_legacy = False).cohort
     # print(cohort_info)
