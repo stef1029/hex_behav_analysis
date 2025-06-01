@@ -366,6 +366,7 @@ class Cohort_folder:
 
         # get current date and time as string:
         current_date = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"Current date: {current_date}")
         cohort = {"Cohort name": self.cohort_directory.name, "Time refreshed": current_date, "mice": {}}
         for session_folder in self.session_folders:
             mouse_ID = session_folder.name[14:]  # everything after "YYYYMMDD_HHMMSS_"

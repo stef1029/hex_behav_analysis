@@ -48,3 +48,5 @@ build/
 July_cohort_scripts.code-workspace
 logs/
 Preliminary_analysis_scripts/__pycache__/Full_arduinoDAQ_import.cpython-310.pyc
+*.out
+*.log
