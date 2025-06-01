@@ -645,29 +645,54 @@ class Cohort_folder:
 
     def find_DLC_files(self, session_folder):
         """
-        Find DLC-related files in the session folder using appropriate search patterns.
+        Find DLC-related files in the session folder using modern naming patterns.
         
         Args:
             session_folder: Path to the session folder containing DLC files
             
         Returns:
-            Dictionary containing paths to the labeled video and coordinate CSV files
+            Dictionary containing paths to the labelled video and coordinate files
         """
         DLC_files = {}
         
-        # Find labeled video - still looking for files with 'labeled' in the name
-        DLC_files["labeled_video"] = str(self.find_file(session_folder, 'labeled'))
+        # Convert to Path object for easier handling
+        session_path = Path(session_folder)
         
-        # Find coordinates CSV - looking for CSV files with 'outputDLC' pattern
-        csv_files = list(Path(session_folder).glob("*outputDLC*csv"))
-        # Filter out any files with 'full' in the name if there are multiple matches
-        regular_csv_files = [f for f in csv_files if 'full' not in f.name]
+        # Find labelled video - look for files with 'labeled' or 'labelled' in the name
+        labelled_video = None
+        for video_file in session_path.glob("*"):
+            if video_file.is_file() and ('labeled' in video_file.name.lower() or 'labelled' in video_file.name.lower()):
+                labelled_video = video_file
+                break
         
-        if regular_csv_files:
-            DLC_files["coords_csv"] = str(regular_csv_files[0])
-        else:
-            # Fallback to any CSV if the specific pattern isn't found
-            DLC_files["coords_csv"] = "None"
+        DLC_files["labelled_video"] = str(labelled_video) if labelled_video else "None"
+        
+        # Find coordinates CSV - look for CSV files with DLC_Resnet50 pattern
+        coords_csv = None
+        for csv_file in session_path.glob("*DLC_Resnet50*.csv"):
+            if csv_file.is_file():
+                coords_csv = csv_file
+                break
+        
+        DLC_files["coords_csv"] = str(coords_csv) if coords_csv else "None"
+        
+        # Find H5 files with DLC_Resnet50 pattern
+        coords_h5 = None
+        for h5_file in session_path.glob("*DLC_Resnet50*.h5"):
+            if h5_file.is_file():
+                coords_h5 = h5_file
+                break
+        
+        DLC_files["coords_h5"] = str(coords_h5) if coords_h5 else "None"
+        
+        # Find pickle metadata files with DLC_Resnet50 pattern
+        meta_pickle = None
+        for pickle_file in session_path.glob("*DLC_Resnet50*_meta.pickle"):
+            if pickle_file.is_file():
+                meta_pickle = pickle_file
+                break
+        
+        DLC_files["meta_pickle"] = str(meta_pickle) if meta_pickle else "None"
         
         return DLC_files
 
