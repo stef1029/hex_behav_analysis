@@ -55,11 +55,11 @@ def plot_performance_across_conditions(session_group_results,
     """
     # Default colors if not provided
     if colors is None:
-        colors = {1: 'magenta', 2: 'cyan'}
+        colors = {1: 'magenta', 2: '#00CDF9'}
     
     # Set default labels and title if not provided
     if xlabel is None:
-        xlabel = 'Drug Dosage'
+        xlabel = 'Drug Dosage in mg/Kg'
     if ylabel is None:
         ylabel = 'Attempt Proportion (%)'
     if title is None:
@@ -130,7 +130,7 @@ def plot_performance_across_conditions(session_group_results,
             if not mouse_data.empty:
                 ax.plot(mouse_data['dosage_cat'], mouse_data['proportion'], 
                         marker=marker, markersize=marker_size,
-                        color=colors.get(2, 'cyan'), 
+                        color=colors.get(2, '#00CDF9'), 
                         linewidth=line_width, alpha=line_alpha,
                         linestyle='-')
     
@@ -216,9 +216,29 @@ def plot_performance_across_conditions(session_group_results,
                 print(f"        Standard deviation: {dg_std:.2f}%")
     
     # Set axis labels and title
-    ax.set_xlabel(xlabel, fontsize=12)
-    ax.set_ylabel(ylabel, fontsize=12)
-    ax.set_title(title, fontsize=14)
+
+    # Create custom labels
+    custom_labels = ['saline', '0.01', '0.1', '0.5', '1']
+
+    # Apply custom labels to ticks
+    ax.set_xticklabels(custom_labels)
+
+    # Set fontsize for tick labels on x and y axes
+    ax.tick_params(axis='x', labelsize=25)
+    ax.tick_params(axis='y', labelsize=25)
+    ax.set_xlabel(xlabel, fontsize=25)
+    ax.set_ylabel(ylabel, fontsize=25)
+    ax.set_title(title, fontsize=25)
+    # Set fontsize for tick labels on x and y axes
+    ax.tick_params(axis='x', labelsize=25)  # Controls x-axis tick label font size
+    ax.tick_params(axis='y', labelsize=25)  # Controls y-axis tick label font size
+    # Increase thickness of the x and y spines to 3
+    ax.spines['bottom'].set_linewidth(3)  # x-axis (bottom) spine
+    ax.spines['left'].set_linewidth(3)    # y-axis (left) spine
+
+    # Remove the top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
     
     # Set y-axis range if specified
     if y_range:
@@ -260,17 +280,18 @@ def plot_performance_across_conditions(session_group_results,
                 Line2D([0], [0], color=colors.get(1, 'magenta'), 
                        linewidth=line_width, alpha=line_alpha,
                        marker=marker, markersize=marker_size,
-                       label='Group 1 Mouse')
+                       label='Group A')
             )
             legend_elements.append(
                 Line2D([0], [0], color=colors.get(2, 'cyan'), 
                        linewidth=line_width, alpha=line_alpha,
                        marker=marker, markersize=marker_size,
-                       label='Group 2 Mouse')
+                       label='Group B')
             )
         
         # Create legend
-        ax.legend(handles=legend_elements, loc='best')
+        ax.legend(handles=legend_elements, loc='best', fontsize = 25)
+        
     
     # Tight layout
     plt.tight_layout()

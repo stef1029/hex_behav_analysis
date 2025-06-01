@@ -53,7 +53,7 @@ def plot_control_histogram(session_group_results,
     """
     # Default colors if not provided
     if colors is None:
-        colors = {'control': 'magenta', 'test': 'cyan'}
+        colors = {'control': '#FF8A00', 'test': 'cyan'}
     
     # Compile values for the specified condition(s)
     condition_values = {'control': [], 'test': []}
@@ -140,7 +140,7 @@ def plot_control_histogram(session_group_results,
     if xlabel is None:
         xlabel = 'Attempt Proportion (%)'
     if ylabel is None:
-        ylabel = 'Frequency' if normalize else 'Number of Mice'
+        ylabel = 'Frequency' if normalize else 'Number of Sessions'
     if title is None:
         if condition == "both":
             title = 'Distribution of Attempt Proportions (Control vs Test)'
@@ -148,13 +148,16 @@ def plot_control_histogram(session_group_results,
             title = f'Distribution of {condition.capitalize()} Attempt Proportions'
     
     # Add labels and title
-    ax.set_xlabel(xlabel, fontsize=16)
-    ax.set_ylabel(ylabel, fontsize=16)
-    ax.set_title(title, fontsize=14)
+    ax.set_xlabel(xlabel, fontsize=20)
+    ax.set_ylabel(ylabel, fontsize=20)
+    ax.set_title(title, fontsize=20)
     
     # Set the x-axis limits and ticks
     ax.set_xlim(value_range)
     ax.set_xticks(np.linspace(value_range[0], value_range[1], 11))
+    # Set fontsize for tick labels on x and y axes
+    ax.tick_params(axis='x', labelsize=15)  # Controls x-axis tick label font size
+    ax.tick_params(axis='y', labelsize=15)  # Controls y-axis tick label font size
     
     # Add percentage formatting to y-axis if normalized
     if normalize:
