@@ -736,9 +736,9 @@ class Session:
 
 def main():
 
-    cohort = Cohort_folder(r"/cephfs2/srogers/March_training", multi=True)
+    cohort = Cohort_folder(r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ", multi=True, OEAB_legacy=False)
 
-    test_dir = cohort.get_session("240327_151415")
+    test_dir = cohort.get_session("241017_151132_mtao89-1e")
     # test_dir = cohort.get_session("240323_164315")
 
     session = Session(test_dir)

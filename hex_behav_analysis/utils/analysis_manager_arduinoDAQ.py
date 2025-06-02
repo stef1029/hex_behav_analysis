@@ -691,7 +691,7 @@ def main():
 
     total_start_time = time.perf_counter()
 
-    cohort_directory = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE")
+    cohort_directory = Path(r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ")
 
     logger = logging_setup(cohort_directory)
 
@@ -704,17 +704,17 @@ def main():
 
     refresh = True
     
-    for mouse in directory_info["mice"]:
-        for session in directory_info["mice"][mouse]["sessions"]:
-            num_sessions += 1
-            # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
-            if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
-                if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
-                    date = session[:6]
-                    if int(date) >= 241001:
-                        sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
+    # for mouse in directory_info["mice"]:
+    #     for session in directory_info["mice"][mouse]["sessions"]:
+    #         num_sessions += 1
+    #         # session_directory = Path(directory_info["mice"][mouse]["sessions"][session]["directory"])
+    #         if directory_info["mice"][mouse]["sessions"][session]["raw_data"]["is_all_raw_data_present?"] == True:
+    #             if not directory_info["mice"][mouse]["sessions"][session]["processed_data"]["preliminary_analysis_done?"] == True or refresh == True:
+    #                 date = session[:6]
+    #                 if int(date) >= 241001:
+    #                     sessions_to_process.append(Cohort.get_session(session))     # uses .get_session to make sure that analysis manager has all the paths right.
 
-    print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
+    # print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
 
     # D:\Data\September_portable\241017_151131\241017_151132_mtao89-1e\241017_151132_mtao89-1e.nwb
