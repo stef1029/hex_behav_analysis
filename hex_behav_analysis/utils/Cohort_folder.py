@@ -23,9 +23,12 @@ class Cohort_folder:
         OEAB_legacy=True,
         ignore_tests=True,
         use_existing_cohort_info=False,
-        plot=False
+        plot=False,
+        ephys_data=False
     ):
         """
+        Initialises cohort folder structure and organises data for easy access.
+        
         :param cohort_directory: Base directory for your data
         :param multi: Whether the data is split across subfolders (multiple mice) or not
         :param portable_data: Whether to use the 'portable_data' logic vs. full raw-data logic
@@ -33,6 +36,7 @@ class Cohort_folder:
         :param ignore_tests: Skip any session folders that look like test sessions
         :param use_existing_cohort_info: If True and cohort_info.json exists, load from it and skip scanning
         :param plot: Whether to produce a cohort summary plot (if relevant)
+        :param ephys_data: Whether to scan for and organise ephys files within group folders
         """
         print("Loading cohort info...")
         self.cohort_directory = Path(cohort_directory)
@@ -41,6 +45,7 @@ class Cohort_folder:
         self.OEAB_legacy = OEAB_legacy
         self.ignore_tests = ignore_tests
         self.plot = plot
+        self.ephys_data = ephys_data
 
         if not self.cohort_directory.exists():
             raise Exception(f"Folder {self.cohort_directory} does not exist")
@@ -81,6 +86,7 @@ class Cohort_folder:
 
 
     def plot_graphical_cohort_info(self, show=False):
+        """Plot graphical summary of cohort information."""
         graphical_cohort_info(self.cohort, self.cohort_directory, show)
 
 
@@ -88,6 +94,9 @@ class Cohort_folder:
         """
         Check if a session folder represents a test session by examining
         the portion of the folder name after the underscore at position 13.
+        
+        :param folder_name: Name of the folder to check
+        :return: True if this appears to be a test session
         """
         if len(folder_name) > 13 and folder_name[13] == "_":
             mouse_id = folder_name[14:].lower()
@@ -96,11 +105,16 @@ class Cohort_folder:
 
 
     def init_portable_data(self):
+        """Initialise portable data structure by finding mice and NWB files."""
         # make initial dictionary and mouse sub dictionaries with prelimiary information.
         self.find_mice()
 
         # get nwb file location and add to each session dictionary
         self.find_nwbs()
+
+        # Check if ephys data is requested but not supported for portable data
+        if self.ephys_data:
+            print("[INFO] Ephys data scanning is not currently supported for portable data format. Skipping ephys file detection.")
 
         # save as json
         with open(self.json_filename, 'w') as f:
@@ -141,7 +155,65 @@ class Cohort_folder:
                 self.cohort["mice"][mouse]["sessions"][session]["portable"] = True
 
 
+    def find_ephys_files(self):
+        """
+        Scan for ephys files in group folders and associate them with sessions.
+        Ephys files are loose files in the same group folder as the session folder.
+        
+        Note: This function is now called from within check_raw_data() when ephys_data=True
+        """
+        for mouse in self.cohort["mice"]:
+            for session in self.cohort["mice"][mouse]["sessions"]:
+                session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
+                
+                # Get the parent folder (group folder) containing the session
+                group_folder = session_folder.parent
+                
+                # Find all potential ephys files in the group folder
+                ephys_files = self.scan_ephys_files_in_folder(group_folder)
+                
+                # Store ephys file information in the session
+                self.cohort["mice"][mouse]["sessions"][session]["ephys_data"] = ephys_files
+
+
+    def scan_ephys_files_in_folder(self, folder_path):
+        """
+        Scan a folder for ephys-related files and organise them by file extension.
+        
+        :param folder_path: Path to the folder to scan
+        :return: Dictionary containing ephys files organised by their file extensions (one file per extension)
+        """
+        ephys_files = {}
+        
+        # Define ephys-related file extensions
+        ephys_extensions = {'.bin', '.1', '.2', '.3', '.4', '.eeg', '.eeg2', '.eeg3', '.eeg4', '.stm', '.set', '.inp'}
+        
+        # Scan all files in the folder
+        for file_path in folder_path.iterdir():
+            if file_path.is_file():
+                file_ext = file_path.suffix.lower()
+                
+                # Skip common non-ephys files
+                if file_ext in {'.avi', '.mp4', '.mov', '.json', '.txt', '.csv', '.xlsx', '.log', '.nwb', '.h5', '.mat', '.pickle', '.pkl'}:
+                    continue
+                
+                # Include files with known ephys extensions or unknown extensions that might be ephys-related
+                if file_ext in ephys_extensions or file_ext not in {'.avi', '.mp4', '.mov', '.json', '.txt', '.csv', '.xlsx', '.log', '.nwb', '.h5', '.mat', '.pickle', '.pkl'}:
+                    # Remove the leading dot from extension for cleaner keys
+                    extension_key = file_ext.lstrip('.')
+                    # Store only one file per extension (most recent if multiple found)
+                    ephys_files[extension_key] = str(file_path)
+        
+        # Add summary information
+        total_files = len([v for k, v in ephys_files.items() if k not in ['total_files', 'has_ephys_data']])
+        ephys_files["total_files"] = total_files
+        ephys_files["has_ephys_data"] = total_files > 0
+        
+        return ephys_files
+
+
     def init_raw_data(self):
+        """Initialise raw data structure with comprehensive file checking."""
         self.find_mice()
         self.check_raw_data()
         self.check_for_preliminary_analysis()
@@ -165,6 +237,10 @@ class Cohort_folder:
         """
         Takes a session ID and returns a dictionary containing the info
         from cohort info about that session.
+        
+        :param ID: Session identifier to retrieve
+        :param concise: Whether to return concise version of session data
+        :return: Dictionary containing session information or None if not found
         """
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
@@ -179,6 +255,8 @@ class Cohort_folder:
     def phases(self):
         """
         Makes it easy to see the sessions for each known phase in a cohort.
+        
+        :return: Dictionary organised by behavioural phase
         """
         phases = ["1", "2", "3", "3b", "3c", "4", "4b", "4c", "test", 
                 "5", "6", "7", "8", "9", "9b", "9c", "10"]
@@ -293,7 +371,7 @@ class Cohort_folder:
 
     def text_summary_cohort_info(self):
         """
-        Example textual summary. Requires self.cohort_concise["complete_data"] loaded.
+        Generate and save a textual summary of the cohort information.
         """
         if "complete_data" not in self.cohort_concise:
             print("No complete_data in cohort_concise. Please generate or load it first.")
@@ -398,6 +476,9 @@ class Cohort_folder:
                 raw_data = {}
                 check_list = []
 
+                # Initialise missing_files list early to avoid KeyError
+                raw_data["missing_files"] = []
+
                 # Look for required raw data files
                 raw_data["raw_video"] = str(self.find_file(session_folder, '.avi'))
                 raw_data["behaviour_data"] = str(self.find_file(session_folder, 'behaviour_data'))
@@ -432,8 +513,6 @@ class Cohort_folder:
                                 raw_data["scales_data"] = False
                                 check_list.append("None")  # Mark as missing
                                 # Add to missing files list
-                                if "missing_files" not in raw_data:
-                                    raw_data["missing_files"] = []
                                 raw_data["missing_files"].append("invalid_behaviour_data_json")
                     except Exception as e:
                         print(f"Error reading behaviour data for {session}: {str(e)}")
@@ -449,10 +528,22 @@ class Cohort_folder:
                 else:
                     raw_data["is_all_raw_data_present?"] = False
 
-                # Track which files are missing
-                if "missing_files" not in raw_data:
-                    raw_data["missing_files"] = []
+                # If ephys data is enabled, also check for .bin file presence
+                if self.ephys_data:
+                    session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
+                    group_folder = session_folder.parent
                     
+                    # Get ephys files and store them in the session
+                    ephys_files = self.scan_ephys_files_in_folder(group_folder)
+                    self.cohort["mice"][mouse]["sessions"][session]["ephys_data"] = ephys_files
+                    
+                    # Check if .bin file exists using the ephys data we just collected
+                    if "bin" not in ephys_files or len(ephys_files["bin"]) == 0:
+                        raw_data["is_all_raw_data_present?"] = False
+                        if "missing_ephys_bin" not in raw_data["missing_files"]:
+                            raw_data["missing_files"].append("missing_ephys_bin")
+
+                # Track which files are missing
                 if raw_data["raw_video"] == "None":
                     raw_data["missing_files"].append("raw_video")
                 if raw_data["behaviour_data"] == "None":
@@ -510,8 +601,13 @@ class Cohort_folder:
                 # Store the raw_data dict back into self.cohort
                 self.cohort["mice"][mouse]["sessions"][session]["raw_data"] = raw_data
 
-
     def get_video_length(self, tracker_data):
+        """
+        Calculate video length from tracker data timestamps.
+        
+        :param tracker_data: Path to tracker data file
+        :return: Video length in minutes or None if unavailable
+        """
         if tracker_data != "None":
             with open(tracker_data) as f:
                 try:
@@ -530,6 +626,12 @@ class Cohort_folder:
 
 
     def get_OEAB_file_info(self, OEAB_file):
+        """
+        Extract information about OEAB recording files.
+        
+        :param OEAB_file: Path to OEAB directory
+        :return: Dictionary containing OEAB file information
+        """
         OEAB_contents = {}
         if OEAB_file != "None":
             OEAB_nodes = list(Path(OEAB_file).glob('*'))
@@ -555,6 +657,12 @@ class Cohort_folder:
 
 
     def get_session_metadata(self, nwb_or_json_file):
+        """
+        Extract session metadata from NWB or JSON files.
+        
+        :param nwb_or_json_file: Path to metadata file
+        :return: Dictionary containing session metadata
+        """
         session_metadata = {}
         try:
             if nwb_or_json_file != "None":
@@ -619,6 +727,9 @@ class Cohort_folder:
 
 
     def check_for_preliminary_analysis(self):
+        """
+        Check each session for the presence of preliminary analysis files.
+        """
         for mouse in self.cohort["mice"]:
             for session in self.cohort["mice"][mouse]["sessions"]:
                 session_folder = Path(self.cohort["mice"][mouse]["sessions"][session]["directory"])
@@ -650,11 +761,8 @@ class Cohort_folder:
         """
         Find DLC-related files in the session folder using modern naming patterns.
         
-        Args:
-            session_folder: Path to the session folder containing DLC files
-            
-        Returns:
-            Dictionary containing paths to the labelled video and coordinate files
+        :param session_folder: Path to the session folder containing DLC files
+        :return: Dictionary containing paths to the labelled video and coordinate files
         """
         DLC_files = {}
         
@@ -701,6 +809,13 @@ class Cohort_folder:
 
 
     def find_file(self, directory, tag):
+        """
+        Find a file in directory containing the specified tag.
+        
+        :param directory: Directory to search in
+        :param tag: String tag to search for in filenames
+        :return: Path to found file or None
+        """
         for file in directory.glob('*'):
             if tag in file.name:
                 return file
@@ -711,6 +826,10 @@ class Cohort_folder:
         """
         Finds OEAB data by looking for a folder with 'OEAB_recording'.
         If not found, falls back to older method (folder with no letters).
+        
+        :param directory: Directory to search in
+        :param mouse: Mouse identifier (for multi-folder structure)
+        :return: Path to OEAB directory or None
         """
         if not self.multi:
             for file in directory.glob('*'):
@@ -732,30 +851,31 @@ class Cohort_folder:
 
 
 def main():
-    # Example usage:
+    """
+    Main function demonstrating usage of the Cohort_folder class.
+    """
+    # Example usage with ephys data scanning enabled:
     test_dir = Path(r"D:\Behaviour\July_cohort_24\Portable_data")
 
-    # If you want to rely on scanning:
-    # cohort = Cohort_folder(
-    #     test_dir,
-    #     multi=True,
-    #     portable_data=True,
-    #     use_existing_cohort_info=False,
-    #     plot=True
-    # )
-
-    # If you want to load from existing JSON if present:
+    # Create cohort folder instance with ephys data scanning enabled
     cohort = Cohort_folder(
         test_dir,
         multi=True,
         portable_data=True,
         use_existing_cohort_info=True,
-        plot=True
+        plot=True,
+        ephys_data=True
     )
 
-    # Possibly do some queries on cohort
+    # Example of accessing ephys data for a specific session
     # session_info = cohort.get_session("240311_183300")
-    # print(session_info)
+    # if session_info and "ephys_data" in session_info:
+    #     ephys_files = session_info["ephys_data"]
+    #     print(f"Ephys files found: {ephys_files['total_files']}")
+    #     print(f"Files by extension:")
+    #     for ext, file_path in ephys_files.items():
+    #         if ext not in ['total_files', 'has_ephys_data']:
+    #             print(f"  .{ext}: {file_path}")
 
 
 if __name__ == "__main__":
