@@ -1009,28 +1009,28 @@ class Cohort_folder:
         
         DLC_files["labelled_video"] = str(labelled_video) if labelled_video else "None"
         
-        # Find coordinates CSV - look for CSV files with DLC_Resnet50 pattern
+        # Find coordinates CSV - look for CSV files with DLC_Resnet50 pattern (case-insensitive)
         coords_csv = None
-        for csv_file in session_path.glob("*DLC_Resnet50*.csv"):
-            if csv_file.is_file():
+        for csv_file in session_path.glob("*.csv"):
+            if csv_file.is_file() and 'dlc_resnet50' in csv_file.name.lower():
                 coords_csv = csv_file
                 break
         
         DLC_files["coords_csv"] = str(coords_csv) if coords_csv else "None"
         
-        # Find H5 files with DLC_Resnet50 pattern
+        # Find H5 files with DLC_Resnet50 pattern (case-insensitive)
         coords_h5 = None
-        for h5_file in session_path.glob("*DLC_Resnet50*.h5"):
-            if h5_file.is_file():
+        for h5_file in session_path.glob("*.h5"):
+            if h5_file.is_file() and 'dlc_resnet50' in h5_file.name.lower():
                 coords_h5 = h5_file
                 break
         
         DLC_files["coords_h5"] = str(coords_h5) if coords_h5 else "None"
         
-        # Find pickle metadata files with DLC_Resnet50 pattern
+        # Find pickle metadata files with DLC_Resnet50 pattern (case-insensitive)
         meta_pickle = None
-        for pickle_file in session_path.glob("*DLC_Resnet50*_meta.pickle"):
-            if pickle_file.is_file():
+        for pickle_file in session_path.glob("*.pickle"):
+            if pickle_file.is_file() and 'dlc_resnet50' in pickle_file.name.lower() and '_meta' in pickle_file.name.lower():
                 meta_pickle = pickle_file
                 break
         
