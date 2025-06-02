@@ -78,7 +78,7 @@ def main():
     4) Saves the extracted frame to [session_folder]/truncated_start_report/<session_id>_middle_frame.png.
     """
 
-    cohort_directory = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    cohort_directory = r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ"
     # cohort_directory = r"/cephfs2/dwelch/Behaviour/November_cohort"
 
     # Instantiate the cohort
