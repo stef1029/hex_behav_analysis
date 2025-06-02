@@ -716,9 +716,13 @@ def main():
 
     print(f"Processing {len(sessions_to_process)} of {num_sessions} sessions...")
 
-    # # sessions_to_process = ['240909_140114_mtao89-1d']
+
+    # D:\Data\September_portable\241017_151131\241017_151132_mtao89-1e\241017_151132_mtao89-1e.nwb
+
+    sessions_to_process = ['241017_151132_mtao89-1e']
+
     # sessions_to_process = ["241017_151132_wtjx249-4b", "241017_151132_mtao89-1e"]
-    # sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
+    sessions_to_process = [Cohort.get_session(session) for session in sessions_to_process]
 
     for session in sessions_to_process:
         print(f"\n\nProcessing {session.get('directory')}...")
