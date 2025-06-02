@@ -654,94 +654,14 @@ class Cohort_folder:
         return OEAB_contents
 
 
-    # def get_session_metadata(self, nwb_or_json_file):
-    #     """
-    #     Extract session metadata from NWB or JSON files.
-        
-    #     :param nwb_or_json_file: Path to metadata file
-    #     :return: Dictionary containing session metadata
-    #     """
-    #     session_metadata = {}
-    #     try:
-    #         if nwb_or_json_file != "None":
-    #             suffix = Path(nwb_or_json_file).suffix
-    #             if suffix == '.json':
-    #                 try:
-    #                     with open(nwb_or_json_file) as f:
-    #                         data = json.load(f)
-    #                     session_metadata["phase"] = data.get("Behaviour phase")
-    #                     session_metadata["total_trials"] = data.get("Total trials")
-    #                     session_metadata["cue_duration"] = data.get("Cue duration", None)
-    #                     session_metadata["wait_duration"] = data.get("Wait duration", "0")
-    #                 except json.JSONDecodeError as json_err:
-    #                     print(f"JSONDecodeError for file {nwb_or_json_file}: {str(json_err)}")
-    #                     # Set metadata to default values for invalid JSON
-    #                     session_metadata["phase"] = None
-    #                     session_metadata["total_trials"] = None
-    #                     session_metadata["cue_duration"] = None
-    #                     session_metadata["wait_duration"] = "0"
-    #                     # Add a flag to indicate JSON was invalid
-    #                     session_metadata["invalid_json"] = True
-    #             elif suffix == '.nwb':
-    #                 with NWBHDF5IO(str(nwb_or_json_file), 'r') as io:
-    #                     nwbfile = io.read()
-    #                     exp_description = nwbfile.experiment_description or ""
-    #                     metadata_parts = {}
-    #                     for part in exp_description.split(';'):
-    #                         part = part.strip()
-    #                         if not part:
-    #                             continue
-    #                         try:
-    #                             key, val = part.split(':', 1)
-    #                             key = key.strip()
-    #                             val = val.strip()
-    #                             metadata_parts[key] = val
-    #                         except ValueError:
-    #                             print(f"[WARNING] Couldn't parse '{part}' with ':'. Skipping.")
-    #                             continue
-
-    #                     session_metadata['phase'] = metadata_parts.get('phase', '').strip()
-    #                     session_metadata['cue_duration'] = metadata_parts.get('cue', '').strip()
-    #                     session_metadata['wait_duration'] = metadata_parts.get('wait', '0').strip()
-    #                     session_metadata["total_trials"] = None
-    #         else:
-    #             session_metadata["phase"] = None
-    #             session_metadata["total_trials"] = None
-    #             session_metadata["cue_duration"] = None
-    #             session_metadata["wait_duration"] = "0"
-    #     except Exception as e:
-    #         print(f"Error processing metadata from {nwb_or_json_file}: {str(e)}")
-    #         traceback.print_exc()
-    #         # Return empty dictionary with default values instead of None
-    #         session_metadata = {
-    #             "phase": None,
-    #             "total_trials": None,
-    #             "cue_duration": None,
-    #             "wait_duration": "0",
-    #             "error_occurred": True
-    #         }
-
-    #     return session_metadata
-    
     def get_session_metadata(self, nwb_or_json_file):
         """
         Extract session metadata from NWB or JSON files.
-        Now includes detailed warning capture for NWB dimension mismatches.
         
         :param nwb_or_json_file: Path to metadata file
         :return: Dictionary containing session metadata
         """
         session_metadata = {}
-        
-        # Extract session ID from the file path for reporting
-        session_id = "unknown"
-        if nwb_or_json_file != "None":
-            file_path = Path(nwb_or_json_file)
-            # Try to extract session ID from parent directory name
-            parent_name = file_path.parent.name
-            if len(parent_name) > 13 and parent_name[13] == "_":
-                session_id = parent_name
-        
         try:
             if nwb_or_json_file != "None":
                 suffix = Path(nwb_or_json_file).suffix
@@ -755,85 +675,44 @@ class Cohort_folder:
                         session_metadata["wait_duration"] = data.get("Wait duration", "0")
                     except json.JSONDecodeError as json_err:
                         print(f"JSONDecodeError for file {nwb_or_json_file}: {str(json_err)}")
+                        # Set metadata to default values for invalid JSON
                         session_metadata["phase"] = None
                         session_metadata["total_trials"] = None
                         session_metadata["cue_duration"] = None
                         session_metadata["wait_duration"] = "0"
+                        # Add a flag to indicate JSON was invalid
                         session_metadata["invalid_json"] = True
-                        
                 elif suffix == '.nwb':
-                    # Capture warnings specifically for this NWB file
-                    captured_warnings = []
-                    
-                    def warning_handler(message, category, filename, lineno, file=None, line=None):
-                        if "Length of data does not match length of timestamps" in str(message):
-                            captured_warnings.append(str(message))
-                    
-                    # Set up warning capture
-                    old_showwarning = warnings.showwarning
-                    warnings.showwarning = warning_handler
-                    
-                    # Track how many files we've analysed for comparison
-                    if not hasattr(self, '_nwb_analysis_count'):
-                        self._nwb_analysis_count = 0
-                    self._nwb_analysis_count += 1
-                    
-                    try:
-                        with NWBHDF5IO(str(nwb_or_json_file), 'r') as io:
-                            nwbfile = io.read()
-                            
-                            # If we captured warnings, analyse the data dimensions
-                            if captured_warnings:
-                                print(f"\n=== DIMENSION MISMATCH DETECTED ===")
-                                print(f"Session ID: {session_id}")
-                                print(f"NWB File: {nwb_or_json_file}")
-                                print(f"Number of warnings: {len(captured_warnings)}")
-                                
-                                # Analyse TimeSeries objects that generated warnings
-                                self._analyse_nwb_timeseries_dimensions(nwbfile, captured_warnings, session_id, show_problematic=True)
-                            
-                            # Show structure of first few normal files for comparison
-                            elif self._nwb_analysis_count <= 3:  # Show first 3 normal files
-                                print(f"\n=== NORMAL NWB FILE (for comparison) ===")
-                                print(f"Session ID: {session_id}")
-                                print(f"NWB File: {nwb_or_json_file}")
-                                
-                                # Analyse all TimeSeries in this normal file
-                                self._analyse_nwb_timeseries_dimensions(nwbfile, [], session_id, show_problematic=False)
-                            
-                            # Extract metadata from experiment description
-                            exp_description = nwbfile.experiment_description or ""
-                            metadata_parts = {}
-                            for part in exp_description.split(';'):
-                                part = part.strip()
-                                if not part:
-                                    continue
-                                try:
-                                    key, val = part.split(':', 1)
-                                    key = key.strip()
-                                    val = val.strip()
-                                    metadata_parts[key] = val
-                                except ValueError:
-                                    print(f"[WARNING] Couldn't parse '{part}' with ':'. Skipping.")
-                                    continue
+                    with NWBHDF5IO(str(nwb_or_json_file), 'r') as io:
+                        nwbfile = io.read()
+                        exp_description = nwbfile.experiment_description or ""
+                        metadata_parts = {}
+                        for part in exp_description.split(';'):
+                            part = part.strip()
+                            if not part:
+                                continue
+                            try:
+                                key, val = part.split(':', 1)
+                                key = key.strip()
+                                val = val.strip()
+                                metadata_parts[key] = val
+                            except ValueError:
+                                print(f"[WARNING] Couldn't parse '{part}' with ':'. Skipping.")
+                                continue
 
-                            session_metadata['phase'] = metadata_parts.get('phase', '').strip()
-                            session_metadata['cue_duration'] = metadata_parts.get('cue', '').strip()
-                            session_metadata['wait_duration'] = metadata_parts.get('wait', '0').strip()
-                            session_metadata["total_trials"] = None
-                            
-                    finally:
-                        # Restore original warning handler
-                        warnings.showwarning = old_showwarning
-                        
+                        session_metadata['phase'] = metadata_parts.get('phase', '').strip()
+                        session_metadata['cue_duration'] = metadata_parts.get('cue', '').strip()
+                        session_metadata['wait_duration'] = metadata_parts.get('wait', '0').strip()
+                        session_metadata["total_trials"] = None
             else:
                 session_metadata["phase"] = None
                 session_metadata["total_trials"] = None
                 session_metadata["cue_duration"] = None
                 session_metadata["wait_duration"] = "0"
-                
         except Exception as e:
             print(f"Error processing metadata from {nwb_or_json_file}: {str(e)}")
+            traceback.print_exc()
+            # Return empty dictionary with default values instead of None
             session_metadata = {
                 "phase": None,
                 "total_trials": None,
@@ -843,115 +722,236 @@ class Cohort_folder:
             }
 
         return session_metadata
-
-
-    def _analyse_nwb_timeseries_dimensions(self, nwbfile, captured_warnings, session_id, show_problematic=True):
-        """
-        Analyse the dimensions of TimeSeries objects in an NWB file to understand mismatches.
+    
+    # def get_session_metadata(self, nwb_or_json_file):
+    #     """
+    #     Extract session metadata from NWB or JSON files.
+    #     Now includes detailed warning capture for NWB dimension mismatches.
         
-        :param nwbfile: Loaded NWB file object
-        :param captured_warnings: List of captured warning messages
-        :param session_id: Session identifier for reporting
-        :param show_problematic: If True, analyse warned TimeSeries; if False, show all TimeSeries
-        """
-        if show_problematic:
-            print(f"--- Analysing TimeSeries dimensions for session {session_id} ---")
-            
-            # Extract TimeSeries names from warnings
-            problematic_series = []
-            for warning in captured_warnings:
-                if "TimeSeries" in warning and ":" in warning:
-                    # Extract the TimeSeries name from warning like "TimeSeries 'head': Length..."
-                    parts = warning.split("'")
-                    if len(parts) >= 2:
-                        series_name = parts[1]
-                        problematic_series.append(series_name)
-            
-            series_to_analyse = problematic_series
-        else:
-            print(f"--- Normal NWB structure for session {session_id} ---")
-            series_to_analyse = []
-            
-            # Collect all TimeSeries names from the file
-            all_timeseries = []
-            
-            # Check in acquisition
-            if hasattr(nwbfile, 'acquisition'):
-                for name, obj in nwbfile.acquisition.items():
-                    if hasattr(obj, 'data') and hasattr(obj, 'timestamps'):
-                        all_timeseries.append(name)
-            
-            # Check in processing modules
-            if hasattr(nwbfile, 'processing'):
-                for module_name, module in nwbfile.processing.items():
-                    if hasattr(module, 'data_interfaces'):
-                        for interface_name, interface in module.data_interfaces.items():
-                            if hasattr(interface, 'time_series'):
-                                for ts_name in interface.time_series.keys():
-                                    all_timeseries.append(ts_name)
-            
-            series_to_analyse = all_timeseries[:8]  # Show first 8 for comparison
-            if len(all_timeseries) > 8:
-                print(f"  Found {len(all_timeseries)} TimeSeries total, showing first 8...")
+    #     :param nwb_or_json_file: Path to metadata file
+    #     :return: Dictionary containing session metadata
+    #     """
+    #     session_metadata = {}
         
-        # Try to find and analyse these TimeSeries objects
-        for series_name in series_to_analyse:
-            try:
-                # Search for the TimeSeries in different containers
-                timeseries_obj = None
-                location = "Unknown"
-                
-                # Check in acquisition
-                if hasattr(nwbfile, 'acquisition') and series_name in nwbfile.acquisition:
-                    timeseries_obj = nwbfile.acquisition[series_name]
-                    location = "acquisition"
-                
-                # Check in processing modules
-                if timeseries_obj is None and hasattr(nwbfile, 'processing'):
-                    for module_name, module in nwbfile.processing.items():
-                        if hasattr(module, 'data_interfaces'):
-                            for interface_name, interface in module.data_interfaces.items():
-                                if hasattr(interface, 'time_series') and series_name in interface.time_series:
-                                    timeseries_obj = interface.time_series[series_name]
-                                    location = f"processing/{module_name}/{interface_name}"
-                                    break
-                        if timeseries_obj is not None:
-                            break
-                
-                if timeseries_obj is not None:
-                    # Get dimensions
-                    data_shape = timeseries_obj.data.shape if hasattr(timeseries_obj.data, 'shape') else "Unknown"
-                    timestamps_shape = timeseries_obj.timestamps.shape if hasattr(timeseries_obj.timestamps, 'shape') else "Unknown"
-                    
-                    print(f"  {series_name} (in {location}):")
-                    print(f"    Data shape: {data_shape}")
-                    print(f"    Timestamps shape: {timestamps_shape}")
-                    
-                    # Calculate expected vs actual
-                    if hasattr(timeseries_obj.data, 'shape') and hasattr(timeseries_obj.timestamps, 'shape'):
-                        data_len = timeseries_obj.data.shape[0]
-                        timestamp_len = len(timeseries_obj.timestamps)
-                        print(f"    Data length (dim 0): {data_len}")
-                        print(f"    Timestamp length: {timestamp_len}")
+    #     # Extract session ID from the file path for reporting
+    #     session_id = "unknown"
+    #     if nwb_or_json_file != "None":
+    #         file_path = Path(nwb_or_json_file)
+    #         # Try to extract session ID from parent directory name
+    #         parent_name = file_path.parent.name
+    #         if len(parent_name) > 13 and parent_name[13] == "_":
+    #             session_id = parent_name
+        
+    #     try:
+    #         if nwb_or_json_file != "None":
+    #             suffix = Path(nwb_or_json_file).suffix
+    #             if suffix == '.json':
+    #                 try:
+    #                     with open(nwb_or_json_file) as f:
+    #                         data = json.load(f)
+    #                     session_metadata["phase"] = data.get("Behaviour phase")
+    #                     session_metadata["total_trials"] = data.get("Total trials")
+    #                     session_metadata["cue_duration"] = data.get("Cue duration", None)
+    #                     session_metadata["wait_duration"] = data.get("Wait duration", "0")
+    #                 except json.JSONDecodeError as json_err:
+    #                     print(f"JSONDecodeError for file {nwb_or_json_file}: {str(json_err)}")
+    #                     session_metadata["phase"] = None
+    #                     session_metadata["total_trials"] = None
+    #                     session_metadata["cue_duration"] = None
+    #                     session_metadata["wait_duration"] = "0"
+    #                     session_metadata["invalid_json"] = True
                         
-                        if show_problematic:
-                            print(f"    Mismatch: {abs(data_len - timestamp_len)} timepoints")
-                            
-                            # Suggest transpose if data seems to match timestamps on other dimension
-                            if len(timeseries_obj.data.shape) > 1:
-                                if timeseries_obj.data.shape[1] == timestamp_len:
-                                    print(f"    → Data appears transposed: shape[1]={timeseries_obj.data.shape[1]} matches timestamps")
-                        else:
-                            match_status = "✓ MATCH" if data_len == timestamp_len else "✗ MISMATCH"
-                            print(f"    Status: {match_status}")
-                            
-                else:
-                    print(f"  {series_name}: Could not locate TimeSeries object")
+    #             elif suffix == '.nwb':
+    #                 # Capture warnings specifically for this NWB file
+    #                 captured_warnings = []
                     
-            except Exception as e:
-                print(f"  {series_name}: Error analysing - {str(e)}")
+    #                 def warning_handler(message, category, filename, lineno, file=None, line=None):
+    #                     if "Length of data does not match length of timestamps" in str(message):
+    #                         captured_warnings.append(str(message))
+                    
+    #                 # Set up warning capture
+    #                 old_showwarning = warnings.showwarning
+    #                 warnings.showwarning = warning_handler
+                    
+    #                 # Track how many files we've analysed for comparison
+    #                 if not hasattr(self, '_nwb_analysis_count'):
+    #                     self._nwb_analysis_count = 0
+    #                 self._nwb_analysis_count += 1
+                    
+    #                 try:
+    #                     with NWBHDF5IO(str(nwb_or_json_file), 'r') as io:
+    #                         nwbfile = io.read()
+                            
+    #                         # If we captured warnings, analyse the data dimensions
+    #                         if captured_warnings:
+    #                             print(f"\n=== DIMENSION MISMATCH DETECTED ===")
+    #                             print(f"Session ID: {session_id}")
+    #                             print(f"NWB File: {nwb_or_json_file}")
+    #                             print(f"Number of warnings: {len(captured_warnings)}")
+                                
+    #                             # Analyse TimeSeries objects that generated warnings
+    #                             self._analyse_nwb_timeseries_dimensions(nwbfile, captured_warnings, session_id, show_problematic=True)
+                            
+    #                         # Show structure of first few normal files for comparison
+    #                         elif self._nwb_analysis_count <= 3:  # Show first 3 normal files
+    #                             print(f"\n=== NORMAL NWB FILE (for comparison) ===")
+    #                             print(f"Session ID: {session_id}")
+    #                             print(f"NWB File: {nwb_or_json_file}")
+                                
+    #                             # Analyse all TimeSeries in this normal file
+    #                             self._analyse_nwb_timeseries_dimensions(nwbfile, [], session_id, show_problematic=False)
+                            
+    #                         # Extract metadata from experiment description
+    #                         exp_description = nwbfile.experiment_description or ""
+    #                         metadata_parts = {}
+    #                         for part in exp_description.split(';'):
+    #                             part = part.strip()
+    #                             if not part:
+    #                                 continue
+    #                             try:
+    #                                 key, val = part.split(':', 1)
+    #                                 key = key.strip()
+    #                                 val = val.strip()
+    #                                 metadata_parts[key] = val
+    #                             except ValueError:
+    #                                 print(f"[WARNING] Couldn't parse '{part}' with ':'. Skipping.")
+    #                                 continue
+
+    #                         session_metadata['phase'] = metadata_parts.get('phase', '').strip()
+    #                         session_metadata['cue_duration'] = metadata_parts.get('cue', '').strip()
+    #                         session_metadata['wait_duration'] = metadata_parts.get('wait', '0').strip()
+    #                         session_metadata["total_trials"] = None
+                            
+    #                 finally:
+    #                     # Restore original warning handler
+    #                     warnings.showwarning = old_showwarning
+                        
+    #         else:
+    #             session_metadata["phase"] = None
+    #             session_metadata["total_trials"] = None
+    #             session_metadata["cue_duration"] = None
+    #             session_metadata["wait_duration"] = "0"
+                
+    #     except Exception as e:
+    #         print(f"Error processing metadata from {nwb_or_json_file}: {str(e)}")
+    #         session_metadata = {
+    #             "phase": None,
+    #             "total_trials": None,
+    #             "cue_duration": None,
+    #             "wait_duration": "0",
+    #             "error_occurred": True
+    #         }
+
+    #     return session_metadata
+
+
+    # def _analyse_nwb_timeseries_dimensions(self, nwbfile, captured_warnings, session_id, show_problematic=True):
+    #     """
+    #     Analyse the dimensions of TimeSeries objects in an NWB file to understand mismatches.
         
-        print("=" * 50)
+    #     :param nwbfile: Loaded NWB file object
+    #     :param captured_warnings: List of captured warning messages
+    #     :param session_id: Session identifier for reporting
+    #     :param show_problematic: If True, analyse warned TimeSeries; if False, show all TimeSeries
+    #     """
+    #     if show_problematic:
+    #         print(f"--- Analysing TimeSeries dimensions for session {session_id} ---")
+            
+    #         # Extract TimeSeries names from warnings
+    #         problematic_series = []
+    #         for warning in captured_warnings:
+    #             if "TimeSeries" in warning and ":" in warning:
+    #                 # Extract the TimeSeries name from warning like "TimeSeries 'head': Length..."
+    #                 parts = warning.split("'")
+    #                 if len(parts) >= 2:
+    #                     series_name = parts[1]
+    #                     problematic_series.append(series_name)
+            
+    #         series_to_analyse = problematic_series
+    #     else:
+    #         print(f"--- Normal NWB structure for session {session_id} ---")
+    #         series_to_analyse = []
+            
+    #         # Collect all TimeSeries names from the file
+    #         all_timeseries = []
+            
+    #         # Check in acquisition
+    #         if hasattr(nwbfile, 'acquisition'):
+    #             for name, obj in nwbfile.acquisition.items():
+    #                 if hasattr(obj, 'data') and hasattr(obj, 'timestamps'):
+    #                     all_timeseries.append(name)
+            
+    #         # Check in processing modules
+    #         if hasattr(nwbfile, 'processing'):
+    #             for module_name, module in nwbfile.processing.items():
+    #                 if hasattr(module, 'data_interfaces'):
+    #                     for interface_name, interface in module.data_interfaces.items():
+    #                         if hasattr(interface, 'time_series'):
+    #                             for ts_name in interface.time_series.keys():
+    #                                 all_timeseries.append(ts_name)
+            
+    #         series_to_analyse = all_timeseries[:8]  # Show first 8 for comparison
+    #         if len(all_timeseries) > 8:
+    #             print(f"  Found {len(all_timeseries)} TimeSeries total, showing first 8...")
+        
+    #     # Try to find and analyse these TimeSeries objects
+    #     for series_name in series_to_analyse:
+    #         try:
+    #             # Search for the TimeSeries in different containers
+    #             timeseries_obj = None
+    #             location = "Unknown"
+                
+    #             # Check in acquisition
+    #             if hasattr(nwbfile, 'acquisition') and series_name in nwbfile.acquisition:
+    #                 timeseries_obj = nwbfile.acquisition[series_name]
+    #                 location = "acquisition"
+                
+    #             # Check in processing modules
+    #             if timeseries_obj is None and hasattr(nwbfile, 'processing'):
+    #                 for module_name, module in nwbfile.processing.items():
+    #                     if hasattr(module, 'data_interfaces'):
+    #                         for interface_name, interface in module.data_interfaces.items():
+    #                             if hasattr(interface, 'time_series') and series_name in interface.time_series:
+    #                                 timeseries_obj = interface.time_series[series_name]
+    #                                 location = f"processing/{module_name}/{interface_name}"
+    #                                 break
+    #                     if timeseries_obj is not None:
+    #                         break
+                
+    #             if timeseries_obj is not None:
+    #                 # Get dimensions
+    #                 data_shape = timeseries_obj.data.shape if hasattr(timeseries_obj.data, 'shape') else "Unknown"
+    #                 timestamps_shape = timeseries_obj.timestamps.shape if hasattr(timeseries_obj.timestamps, 'shape') else "Unknown"
+                    
+    #                 print(f"  {series_name} (in {location}):")
+    #                 print(f"    Data shape: {data_shape}")
+    #                 print(f"    Timestamps shape: {timestamps_shape}")
+                    
+    #                 # Calculate expected vs actual
+    #                 if hasattr(timeseries_obj.data, 'shape') and hasattr(timeseries_obj.timestamps, 'shape'):
+    #                     data_len = timeseries_obj.data.shape[0]
+    #                     timestamp_len = len(timeseries_obj.timestamps)
+    #                     print(f"    Data length (dim 0): {data_len}")
+    #                     print(f"    Timestamp length: {timestamp_len}")
+                        
+    #                     if show_problematic:
+    #                         print(f"    Mismatch: {abs(data_len - timestamp_len)} timepoints")
+                            
+    #                         # Suggest transpose if data seems to match timestamps on other dimension
+    #                         if len(timeseries_obj.data.shape) > 1:
+    #                             if timeseries_obj.data.shape[1] == timestamp_len:
+    #                                 print(f"    → Data appears transposed: shape[1]={timeseries_obj.data.shape[1]} matches timestamps")
+    #                     else:
+    #                         match_status = "✓ MATCH" if data_len == timestamp_len else "✗ MISMATCH"
+    #                         print(f"    Status: {match_status}")
+                            
+    #             else:
+    #                 print(f"  {series_name}: Could not locate TimeSeries object")
+                    
+    #         except Exception as e:
+    #             print(f"  {series_name}: Error analysing - {str(e)}")
+        
+    #     print("=" * 50)
 
 
     def check_for_preliminary_analysis(self):
