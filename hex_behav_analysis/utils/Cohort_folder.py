@@ -180,19 +180,38 @@ class Cohort_folder:
     def scan_ephys_files_in_folder(self, folder_path):
         """
         Scan a folder for ephys-related files and organise them by file extension.
+        Also looks for probe configuration files (tetrodes_x.json).
         
         :param folder_path: Path to the folder to scan
-        :return: Dictionary containing ephys files organised by their file extensions (one file per extension)
+        :return: Dictionary containing ephys files organised by their file extensions and probe file
         """
         ephys_files = {}
         
         # Define ephys-related file extensions
         ephys_extensions = {'.bin', '.1', '.2', '.3', '.4', '.eeg', '.eeg2', '.eeg3', '.eeg4', '.stm', '.set', '.inp'}
         
+        # Variable to store probe file if found
+        probe_file = None
+        
         # Scan all files in the folder
         for file_path in folder_path.iterdir():
             if file_path.is_file():
                 file_ext = file_path.suffix.lower()
+                file_name = file_path.name
+                
+                # Check for probe files with pattern tetrodes_x.json
+                if file_name.startswith('tetrodes_') and file_name.endswith('.json'):
+                    # Extract the x value to ensure it's a valid probe file
+                    try:
+                        # Get the part between 'tetrodes_' and '.json'
+                        x_part = file_name[9:-5]  # 9 is len('tetrodes_'), -5 is to remove '.json'
+                        # Try to convert to int to validate it's a number
+                        int(x_part)
+                        probe_file = str(file_path)
+                        continue  # Skip to next file
+                    except ValueError:
+                        # Not a valid probe file format, treat as regular file
+                        pass
                 
                 # Skip common non-ephys files
                 if file_ext in {'.avi', '.mp4', '.mov', '.json', '.txt', '.csv', '.xlsx', '.log', '.nwb', '.h5', '.mat', '.pickle', '.pkl'}:
@@ -205,8 +224,14 @@ class Cohort_folder:
                     # Store only one file per extension (most recent if multiple found)
                     ephys_files[extension_key] = str(file_path)
         
+        # Add probe file to the dictionary
+        if probe_file:
+            ephys_files["probe_file"] = probe_file
+        else:
+            ephys_files["probe_file"] = None
+        
         # Add summary information
-        total_files = len([v for k, v in ephys_files.items() if k not in ['total_files', 'has_ephys_data']])
+        total_files = len([v for k, v in ephys_files.items() if k not in ['total_files', 'has_ephys_data', 'probe_file'] and v is not None])
         ephys_files["total_files"] = total_files
         ephys_files["has_ephys_data"] = total_files > 0
         
