@@ -161,7 +161,7 @@ def main():
         python label_frames_cohort.py /data/MyCohort
     """
 
-    cohort_directory = r"Z:\debug_vids\Lynn_label_frames"
+    cohort_directory = r"Z:\debug_vids\September_cohort_label_frames"
     overwrite = False
     label_frames_in_cohort(cohort_directory, overwrite=overwrite, window_w=1280, window_h=1024)
 
