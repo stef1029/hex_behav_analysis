@@ -739,11 +739,12 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
 def main():
     # Manual usage of script:
 
-    cohort_directory = r"Z:\Behaviour code\2409_September_cohort\DATA_ArduinoDAQ"
+    cohort_directory = r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ"
     force_reprocess = True  # Set to True to force reprocessing of all files
     verbose_mode = True  # Set to True for detailed output
 
-    target_sessions = ["241017_151131"]  # Example target sessions
+    # target_sessions = ["241017_151131"]  # Example target sessions
+    target_sessions = None
     results = recover_crashed_sessions(cohort_directory, force=force_reprocess, verbose=verbose_mode, target_sessions=target_sessions)
     print(f"Processed {results['arduino_processed']} Arduino files and {results['tracker_processed']} tracker files")
 

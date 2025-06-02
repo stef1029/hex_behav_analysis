@@ -1064,13 +1064,14 @@ class Cohort_folder:
     def find_file(self, directory, tag):
         """
         Find a file in directory containing the specified tag.
+        Ignores files with 'processed' in the name to avoid recovery/backup files.
         
         :param directory: Directory to search in
         :param tag: String tag to search for in filenames
         :return: Path to found file or None
         """
         for file in directory.glob('*'):
-            if tag in file.name:
+            if tag in file.name and 'processed' not in file.name:
                 return file
         return None
 
