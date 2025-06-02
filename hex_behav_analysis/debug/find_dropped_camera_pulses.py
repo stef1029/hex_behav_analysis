@@ -5,7 +5,7 @@ import numpy as np
 import h5py
 from pynwb import NWBHDF5IO
 
-# For color-coded console output
+# For colour-coded console output
 import colorama
 from colorama import Fore, Style
 colorama.init(autoreset=True)
@@ -19,7 +19,7 @@ import re
 from hex_behav_analysis.utils.plot_graphical_cohort_info import graphical_cohort_info
 from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 
-# Color scheme for output
+# Colour scheme for output
 class Colors:
     HEADER = Fore.CYAN
     SUCCESS = Fore.GREEN
@@ -29,12 +29,12 @@ class Colors:
     HIGHLIGHT = Fore.MAGENTA
     
 def print_header(text):
-    """Print a formatted header."""
+    """Print a formatted header with underline."""
     print(f"\n{Colors.HEADER}{text}")
     print(f"{Colors.HEADER}{'=' * len(text)}{Style.RESET_ALL}")
 
 def print_status(category, value, threshold=None, is_good=None):
-    """Print a status line with appropriate coloring."""
+    """Print a status line with appropriate colouring based on value assessment."""
     if is_good is None and threshold is not None:
         is_good = value <= threshold
     
@@ -44,7 +44,20 @@ def print_status(category, value, threshold=None, is_good=None):
 def detect_pulse_edges(signal, timestamps, threshold=0.5):
     """
     Identify the indices of rising edges (TTL pulses) in the given signal.
-    A rising edge is where signal[i] < threshold and signal[i+1] >= threshold.
+    
+    Parameters:
+    -----------
+    signal : array-like
+        The signal data to analyse for pulses
+    timestamps : array-like
+        Corresponding timestamps for each signal point
+    threshold : float, optional
+        Voltage threshold above which signal is considered 'high' (default 0.5)
+    
+    Returns:
+    --------
+    numpy.ndarray
+        Array of indices where rising edges occur
     """
     signal = np.asarray(signal)
     if len(signal) == 0:
@@ -57,7 +70,25 @@ def detect_pulse_edges(signal, timestamps, threshold=0.5):
 
 def count_pulse_anomalies(signal, timestamps, threshold=0.5, min_ratio=0.5, debug=False):
     """
-    Detect pulses and estimate anomalies: both missed pulses and pulses that are too close together.
+    Detect pulses and estimate anomalies including missed pulses and pulses too close together.
+    
+    Parameters:
+    -----------
+    signal : array-like
+        The signal data to analyse
+    timestamps : array-like
+        Corresponding timestamps
+    threshold : float, optional
+        Voltage threshold for pulse detection (default 0.5)
+    min_ratio : float, optional
+        Minimum ratio of interval to median for valid pulse spacing (default 0.5)
+    debug : bool, optional
+        Whether to print debug information (default False)
+        
+    Returns:
+    --------
+    tuple
+        (total_detected, missed_pulses, too_close_count, too_close_locations)
     """
     edges = detect_pulse_edges(signal, timestamps, threshold=threshold)
     total_detected = len(edges)
@@ -97,18 +128,24 @@ def count_pulse_anomalies(signal, timestamps, threshold=0.5, min_ratio=0.5, debu
 
 def check_early_pulses(signal, timestamps, threshold=0.5, min_start_delay=0.3):
     """
-    Check if any signal values are high (above threshold) before the minimum start delay.
+    Check if any signal values are high before the minimum start delay.
     
     Parameters:
-    - signal: The signal array to check
-    - timestamps: Corresponding timestamps for each point in the signal
-    - threshold: Value above which the signal is considered 'high' (default 0.5)
-    - min_start_delay: Minimum time (in seconds) before which any high values are considered problematic (default 0.3 seconds)
+    -----------
+    signal : array-like
+        The signal array to check
+    timestamps : array-like
+        Corresponding timestamps for each point in the signal
+    threshold : float, optional
+        Value above which the signal is considered 'high' (default 0.5)
+    min_start_delay : float, optional
+        Minimum time in seconds before which high values are problematic (default 0.3)
     
     Returns:
-    - Tuple (is_too_early, first_high_time) where:
-        - is_too_early: Boolean indicating if any high values were found before min_start_delay
-        - first_high_time: Timestamp of the first high value, or None if no early high values
+    --------
+    tuple
+        (is_too_early, first_high_time) where is_too_early is boolean and 
+        first_high_time is timestamp of first high value or None
     """
     # Find indices where timestamps are less than min_start_delay
     early_indices = timestamps < min_start_delay
@@ -124,10 +161,29 @@ def check_early_pulses(signal, timestamps, threshold=0.5, min_start_delay=0.3):
         if early_indices[i] and signal[i] >= threshold:
             return True, float(timestamps[i])
     
-    return False, None  # This shouldn't be reached if any(early_high_values) is True
+    return False, None
 
 def check_late_pulses(signal, timestamps, threshold=0.5, min_end_delay=0.1):
-    """Check if the last detected pulse ends too early before the end of recording."""
+    """
+    Check if the last detected pulse ends too early before the end of recording.
+    
+    Parameters:
+    -----------
+    signal : array-like
+        The signal data to analyse
+    timestamps : array-like
+        Corresponding timestamps
+    threshold : float, optional
+        Voltage threshold for pulse detection (default 0.5)
+    min_end_delay : float, optional
+        Minimum delay in seconds between last pulse and recording end (default 0.1)
+        
+    Returns:
+    --------
+    tuple or None
+        (is_too_late, end_delay) where is_too_late is boolean and end_delay 
+        is time between last pulse and recording end, or None if no pulses detected
+    """
     edges = detect_pulse_edges(signal, timestamps, threshold=threshold)
     if len(edges) == 0:
         return None
@@ -139,8 +195,18 @@ def check_late_pulses(signal, timestamps, threshold=0.5, min_end_delay=0.1):
 
 def check_for_crash_pattern(session_dir):
     """
-    Check Tracker_data.json for signs of a crashed session.
-    Returns tuple of (is_crash_pattern, total_frames, details).
+    Check Tracker_data.json for signs of a crashed session based on frame count patterns.
+    
+    Parameters:
+    -----------
+    session_dir : str or Path
+        Directory containing the session data
+        
+    Returns:
+    --------
+    tuple
+        (is_crash_pattern, total_frames, details) where is_crash_pattern indicates
+        if crash pattern detected, total_frames is frame count, details is description
     """
     try:
         # Find the Tracker_data.json file
@@ -174,7 +240,32 @@ def check_for_crash_pattern(session_dir):
 
 def analyze_session_pulses(h5_path, nwb_path, session_dir, camera_channel_name="CAMERA", threshold=0.5, 
                            min_ratio=0.5, debug=False):
-    """Analyze pulse data for a single session."""
+    """
+    Analyse pulse data for a single session and detect various anomalies.
+    
+    Parameters:
+    -----------
+    h5_path : str
+        Path to the HDF5 file containing pulse data
+    nwb_path : str
+        Path to the NWB file
+    session_dir : str or Path
+        Directory containing session files
+    camera_channel_name : str, optional
+        Name of camera channel in HDF5 data (default "CAMERA")
+    threshold : float, optional
+        Voltage threshold for pulse detection (default 0.5)
+    min_ratio : float, optional
+        Minimum ratio for valid pulse spacing (default 0.5)
+    debug : bool, optional
+        Whether to print debug information (default False)
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing analysis results including status, messages, 
+        pulse data, and crash information
+    """
     results = {
         'status': 'success',
         'messages': [],
@@ -201,7 +292,7 @@ def analyze_session_pulses(h5_path, nwb_path, session_dir, camera_channel_name="
             
             camera_signal = h5f['channel_data'][camera_channel_name][:]
         
-        # Analyze pulses
+        # Analyse pulses
         detected, missed, too_close, close_locations = count_pulse_anomalies(
             camera_signal, timestamps, threshold=threshold, min_ratio=min_ratio, debug=debug
         )
@@ -242,8 +333,14 @@ def analyze_session_pulses(h5_path, nwb_path, session_dir, camera_channel_name="
 
 def save_problem_sessions(problem_sessions, output_file):
     """
-    Save information about problematic sessions to a file.
-    Only saves sessions that have actual issues.
+    Save information about problematic sessions to a text file.
+    
+    Parameters:
+    -----------
+    problem_sessions : list
+        List of dictionaries containing problem session information
+    output_file : str or Path
+        Path where the report should be saved
     """
     with open(output_file, 'w') as f:
         f.write("Problem Sessions Report\n")
@@ -278,15 +375,72 @@ def save_problem_sessions(problem_sessions, output_file):
                         f.write(f"  {msg}\n")
                 f.write("-" * 50 + "\n")
 
+def print_copy_ready_reports(early_pulse_sessions, late_pulse_sessions, crash_sessions):
+    """
+    Print formatted lists that can be copied directly into Python scripts.
+    
+    Parameters:
+    -----------
+    early_pulse_sessions : list
+        List of tuples (mouse_id, session_id) for sessions with early pulses
+    late_pulse_sessions : list
+        List of tuples (mouse_id, session_id) for sessions with late pulses  
+    crash_sessions : list
+        List of tuples (mouse_id, session_id) for sessions with crash patterns
+    """
+    print_header("COPY-READY PYTHON LISTS")
+    
+    print(f"\n{Colors.HIGHLIGHT}# Sessions with early pulses (first pulse too early):")
+    print(f"{Colors.INFO}early_pulse_sessions = [")
+    for mouse_id, session_id in early_pulse_sessions:
+        print(f"    ('{mouse_id}', '{session_id}'),")
+    print(f"]{Style.RESET_ALL}")
+    
+    print(f"\n{Colors.HIGHLIGHT}# Sessions with late pulses (last pulse too close to end):")
+    print(f"{Colors.INFO}late_pulse_sessions = [")
+    for mouse_id, session_id in late_pulse_sessions:
+        print(f"    ('{mouse_id}', '{session_id}'),")
+    print(f"]{Style.RESET_ALL}")
+    
+    print(f"\n{Colors.HIGHLIGHT}# Sessions with potential crashes (frame count multiple of 200):")
+    print(f"{Colors.INFO}crash_sessions = [")
+    for mouse_id, session_id in crash_sessions:
+        print(f"    ('{mouse_id}', '{session_id}'),")
+    print(f"]{Style.RESET_ALL}")
+    
+    print(f"\n{Colors.SUCCESS}Total sessions with early pulses: {len(early_pulse_sessions)}")
+    print(f"{Colors.SUCCESS}Total sessions with late pulses: {len(late_pulse_sessions)}")
+    print(f"{Colors.SUCCESS}Total sessions with crashes: {len(crash_sessions)}{Style.RESET_ALL}")
+
 def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", threshold=0.5, 
                                       min_ratio=0.5, debug=False):
-    """Analyze pulse anomalies across the entire cohort and produce final summary."""
+    """
+    Analyse pulse anomalies across the entire cohort and produce comprehensive summary.
+    
+    Parameters:
+    -----------
+    cohort_obj : Cohort_folder
+        Cohort object containing session information
+    camera_channel_name : str, optional
+        Name of camera channel to analyse (default "CAMERA")
+    threshold : float, optional
+        Voltage threshold for pulse detection (default 0.5)
+    min_ratio : float, optional  
+        Minimum ratio for valid pulse spacing (default 0.5)
+    debug : bool, optional
+        Whether to print detailed debug information (default False)
+    """
     problem_sessions = []  # List to store sessions with issues
     cohort_dict = cohort_obj.cohort
     
+    # Lists for copy-ready reports
+    early_pulse_sessions = []
+    late_pulse_sessions = []
+    crash_sessions = []
+    
     # Counters to produce final summary
     summary_counters = {
-        'total_sessions': 0,    # total valid sessions (with h5 to analyze)
+        'total_sessions': 0,    # total valid sessions (with h5 to analyse)
         'crashes': 0,
         'truncated_starts': 0,  # early pulses
         'truncated_ends': 0,    # late pulses
@@ -309,7 +463,7 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
             # We have a valid H5 path, so increment total_sessions
             summary_counters['total_sessions'] += 1
             
-            # Analyze session
+            # Analyse session
             results = analyze_session_pulses(
                 h5_path, nwb_path, session_dir, camera_channel_name, threshold, min_ratio, debug
             )
@@ -357,6 +511,14 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
                 results['status'] == 'error' or
                 results['crash_info']['is_crash_pattern']
             )
+            
+            # Add to copy-ready lists
+            if data['early_pulse']:
+                early_pulse_sessions.append((mouse_id, session_id))
+            if data['late_pulse']:
+                late_pulse_sessions.append((mouse_id, session_id))
+            if results['crash_info']['is_crash_pattern']:
+                crash_sessions.append((mouse_id, session_id))
             
             # Update summary counters if appropriate
             if results['crash_info']['is_crash_pattern']:
@@ -420,19 +582,23 @@ def analyze_cohort_for_dropped_pulses(cohort_obj, camera_channel_name="CAMERA", 
     
     # Final summary report
     print_header("FINAL SUMMARY REPORT")
-    print(f"{Colors.INFO}Total sessions analyzed: {summary_counters['total_sessions']}")
+    print(f"{Colors.INFO}Total sessions analysed: {summary_counters['total_sessions']}")
     print(f"{Colors.INFO}Sessions with crash pattern: {summary_counters['crashes']}")
     print(f"{Colors.INFO}Sessions with truncated start (early pulse): {summary_counters['truncated_starts']}")
     print(f"{Colors.INFO}Sessions with truncated end (late pulse): {summary_counters['truncated_ends']}")
     print(f"{Colors.INFO}Sessions with both truncated start and end: {summary_counters['both_truncated']}")
+    
+    # Print copy-ready reports
+    print_copy_ready_reports(early_pulse_sessions, late_pulse_sessions, crash_sessions)
 
 def main():
+    """Main function to execute the pulse analysis pipeline."""
     # Path to cohort folder
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    cohort_dir = r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ"
     # cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"
 
     # Create or load cohort info
-    print_header("Initializing Cohort Analysis")
+    print_header("Initialising Cohort Analysis")
     cohort = Cohort_folder(
         cohort_directory=cohort_dir,
         multi=True,
@@ -443,7 +609,7 @@ def main():
         plot=False
     )
 
-    # Analyze dropped pulses
+    # Analyse dropped pulses
     print_header("Starting Pulse Analysis")
     analyze_cohort_for_dropped_pulses(
         cohort_obj=cohort,

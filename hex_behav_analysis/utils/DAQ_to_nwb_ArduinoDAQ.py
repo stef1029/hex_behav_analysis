@@ -365,17 +365,30 @@ def DAQ_to_nwb(DAQ_h5_path: Path,
     if not video_directory.exists():
         raise FileNotFoundError(f'Video file {video_directory} not found')
 
-    # Sort keys and make a numpy array of (possibly shifted) timestamps
+    # Sort keys and make a numpy array of timestamps
     numeric_keys = [key for key in video_timestamps.keys() if str(key).isdigit()]
     sorted_keys = sorted(numeric_keys, key=lambda x: int(x))
     video_ts = np.array([video_timestamps[key] for key in sorted_keys], dtype=np.float64)
-    print(f"Adding video to nwb as: '{['./' + video_directory.name]}'")
+
+    # If max_frame_id is provided, ensure we don't exceed it
+    if max_frame_id is not None:
+        if len(video_ts) > max_frame_id + 1:  # +1 because frame IDs start at 0
+            print(f"  [VIDEO INFO] Truncating video timestamps from {len(video_ts)} to {max_frame_id + 1} frames")
+            video_ts = video_ts[:max_frame_id + 1]
+            
+    # Additional safety check: ensure we have valid timestamps
+    if len(video_ts) == 0:
+        raise ValueError("No valid video timestamps found")
+        
+    print(f"  [VIDEO INFO] Final video timestamp array length: {len(video_ts)}")
+    print(f"  [VIDEO INFO] Video timestamp range: {video_ts[0]:.3f}s to {video_ts[-1]:.3f}s")
+
     behaviour_video = ImageSeries(
         name='behaviour_video',
         external_file=['./' + video_directory.name],
         starting_frame=[0],
         format='external',
-        timestamps=video_ts,
+        timestamps=video_ts,  # This should now be the right length
         unit='n.a',
         description='Behaviour top-down video'
     )

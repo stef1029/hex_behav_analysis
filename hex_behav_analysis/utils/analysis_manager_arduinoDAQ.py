@@ -388,48 +388,69 @@ class Process_Raw_Behaviour_Data:
         self.pulse_times = {}
         self.frame_times = {}
 
-        # import as dictionary the data in tracker_data.json
+        # Import video metadata
         with open(self.tracker_data_Path, 'r') as f:
             self.video_metadata = json.load(f)
 
         cap = cv.VideoCapture(str(self.raw_video_Path))
         self.true_video_framecount = cap.get(cv.CAP_PROP_FRAME_COUNT)
         cap.release()
-        if self.video_fps != None:
+        
+        if self.video_fps is not None:
             fps = self.video_fps
             self.print.log(func_name, f"fps set to {fps}")
         else:
             fps = 30
             self.print.log(func_name, "fps set to 30")
         
-        # check if frame_IDs is a key:
+        # Check if frame_IDs is a key:
         if "frame_IDs" in self.video_metadata:
             self.frame_IDs = self.video_metadata["frame_IDs"]
         else:
             error_msg = "Error: No frame_IDs found in tracker_data.json. Processing aborted."
             self.print.error(func_name, error_msg)
             raise Exception(error_msg)
+        
         self.max_frame_ID = max(self.frame_IDs)
 
+        # Create pulse_times dictionary
         for i, pulse in enumerate(self.camera_pulses):
             self.pulse_times[i] = pulse
         
-        if len(self.camera_pulses) < self.max_frame_ID + 1:  # Add +1 because indices start at 0
-            new_max_frame_id = len(self.camera_pulses) - 1
-            self.frame_IDs = [f for f in self.frame_IDs if f <= new_max_frame_id]
+        # CRITICAL FIX: Ensure frame_IDs don't exceed available camera pulses
+        original_frame_count = len(self.frame_IDs)
+        available_pulses = len(self.camera_pulses)
+        
+        if self.max_frame_ID >= available_pulses:
+            # Truncate frame_IDs to fit available pulses
+            self.frame_IDs = [f for f in self.frame_IDs if f < available_pulses]
+            self.max_frame_ID = max(self.frame_IDs) if self.frame_IDs else -1
+            
             self.print.log(
                 func_name,
-                f"Warning: Only {len(self.camera_pulses)} camera pulses recorded, "
-                f"so truncating frame IDs to {len(self.frame_IDs)}."
+                f"Truncated frame_IDs from {original_frame_count} to {len(self.frame_IDs)} "
+                f"to match available camera pulses ({available_pulses})"
             )
-            # Add this debug statement to verify truncation worked
-            self.max_frame_ID = max(self.frame_IDs) if self.frame_IDs else -1
-            self.print.log(func_name, f"After truncation - New max_frame_ID: {self.max_frame_ID}")
             
-        self.print.log(func_name, f"Debug: len pulse times: {len(self.pulse_times)}, len frame IDs: {len(self.frame_IDs)}")
-        frame_ID = 0
+        # Ensure we don't exceed available pulses when creating frame_times
+        valid_frame_count = 0
         for frame_ID in self.frame_IDs:
-            self.frame_times[frame_ID] = self.pulse_times[frame_ID]
+            if frame_ID < len(self.pulse_times):
+                self.frame_times[frame_ID] = self.pulse_times[frame_ID]
+                valid_frame_count += 1
+            else:
+                self.print.log(func_name, f"Skipping frame_ID {frame_ID} - no corresponding pulse")
+        
+        self.print.log(func_name, f"Created {valid_frame_count} valid frame timestamps")
+        self.print.log(func_name, f"Max frame_ID after processing: {self.max_frame_ID}")
+        
+        # Update max_frame_ID to reflect actual data
+        if self.frame_times:
+            self.max_frame_ID = max(self.frame_times.keys())
+        else:
+            self.max_frame_ID = -1
+            
+        self.print.log(func_name, f"Final max_frame_ID: {self.max_frame_ID}")
 
         # Print video length (using frame rate and frame count), in minutes and seconds, rounded:
         minutes = round(self.true_video_framecount / fps) // 60
@@ -437,23 +458,28 @@ class Process_Raw_Behaviour_Data:
         self.print.log(func_name, f"Video length: {minutes} minutes, {seconds} seconds")
 
         # Calculate percentage of dropped frames:
-        dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
-
-        # Print details about dropped frames:
-        self.print.log(func_name, f"Length camera pulses: {len(self.camera_pulses)}, length frames: {self.true_video_framecount}, len frame ids: {len(self.frame_IDs)}")
+        if len(self.camera_pulses) > 0:
+            dropped_frames = ((len(self.camera_pulses) - self.true_video_framecount) / len(self.camera_pulses)) * 100
+        else:
+            dropped_frames = 100
+            
+        self.print.log(func_name, f"Camera pulses: {len(self.camera_pulses)}, Video frames: {self.true_video_framecount}, Valid frame_IDs: {len(self.frame_IDs)}")
 
         if dropped_frames >= 40:
             error_msg = f"Error: Too many dropped frames detected ({round(dropped_frames, 1)}%). Processing aborted."
             self.print.error(func_name, error_msg)
             raise Exception(error_msg)
 
-        self.print.log(func_name, f"Percentage dropped frames: {dropped_frames}%")
+        self.print.log(func_name, f"Percentage dropped frames: {dropped_frames:.1f}%")
 
+        # Save frame times
         self.video_frame_times_filename = self.behaviour_data_Path.parent / f"{self.behaviour_data_Path.name[:13]}_video_frame_times.json"
 
         output_data = {
             "frame_times": self.frame_times,
-            "no_dropped_frames": (self.true_video_framecount - len(self.camera_pulses))
+            "no_dropped_frames": (self.true_video_framecount - len(self.camera_pulses)),
+            "max_frame_id": self.max_frame_ID,
+            "total_valid_frames": len(self.frame_times)
         }
 
         with open(self.video_frame_times_filename, 'w') as f:

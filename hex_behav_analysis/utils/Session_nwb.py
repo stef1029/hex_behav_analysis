@@ -476,7 +476,7 @@ class Session:
     def add_DLC_coords_to_nwb(self):
         """
         Add DeepLabCut coordinate data to the NWB file, ensuring that the DLC data
-        length matches the video timestamps length.
+        length exactly matches the video timestamps length to prevent dimension warnings.
         """
         # Load the DLC coords:
         self.DLC_coords = pd.read_csv(self.DLC_coords_path, header=[1, 2], index_col=0)
@@ -489,10 +489,10 @@ class Session:
                 video_data = nwbfile.acquisition[video_data_name]
                 video_timestamps = video_data.timestamps[:]
                 
-                # Get the number of video timestamps - this is our limit
+                # Get the number of video timestamps - this is our target length
                 num_timestamps = len(video_timestamps)
                 print(f"Number of video timestamps: {num_timestamps}")
-                print(f"Number of DLC frames: {len(self.DLC_coords)}")
+                print(f"Number of DLC frames (original): {len(self.DLC_coords)}")
 
                 # Create a new processing module for the DLC coords:
                 behaviour_module = ProcessingModule(name='behaviour_coords', 
@@ -500,25 +500,49 @@ class Session:
                 nwbfile.add_processing_module(behaviour_module)
 
                 for body_part in self.DLC_coords.columns.levels[0]:
-                    # Extract the data for this body part, but only up to the number of timestamps
-                    # This ensures we don't include extra frames beyond what we have timestamps for
-                    data = self.DLC_coords[body_part].iloc[:num_timestamps].values
+                    # Extract the data for this body part and truncate to exactly match timestamps
+                    body_part_data = self.DLC_coords[body_part].iloc[:num_timestamps]
                     
-                    print(f"Body part: {body_part}, Truncated data shape: {data.shape}")
+                    # Ensure we have exactly the right number of rows
+                    if len(body_part_data) > num_timestamps:
+                        body_part_data = body_part_data.iloc[:num_timestamps]
+                        print(f"Truncated {body_part} from {len(self.DLC_coords)} to {num_timestamps} frames")
+                    elif len(body_part_data) < num_timestamps:
+                        print(f"WARNING: {body_part} has only {len(body_part_data)} frames, less than {num_timestamps} timestamps")
+                        # Pad with NaN if needed (though this shouldn't happen with your data)
+                        # This ensures exact length match
+                        padding_needed = num_timestamps - len(body_part_data)
+                        padding = pd.DataFrame(
+                            np.full((padding_needed, body_part_data.shape[1]), np.nan),
+                            columns=body_part_data.columns,
+                            index=range(len(body_part_data), num_timestamps)
+                        )
+                        body_part_data = pd.concat([body_part_data, padding])
                     
-                    # Create the TimeSeries with the truncated data
+                    # Convert to numpy array - should be exactly (num_timestamps, 3)
+                    data = body_part_data.values
+                    
+                    # print(f"Body part: {body_part}")
+                    # print(f"  Final data shape: {data.shape}")
+                    # print(f"  Timestamps shape: {video_timestamps.shape}")
+                    # print(f"  Dimension match: {data.shape[0] == len(video_timestamps)}")
+                    
+                    # Verify exact dimension match
+                    assert data.shape[0] == len(video_timestamps), f"Dimension mismatch for {body_part}: {data.shape[0]} != {len(video_timestamps)}"
+                    
+                    # Create the TimeSeries with exactly matching dimensions
                     ts = TimeSeries(
                         name=body_part,
-                        data=data,
+                        data=data,  # Should be exactly (num_timestamps, 3)
                         unit='pixels',
-                        timestamps=video_timestamps,
-                        description=f"Coordinates and likelihood for {body_part}"
+                        timestamps=video_timestamps,  # Should be (num_timestamps,)
+                        description=f"Coordinates and likelihood for {body_part} [x, y, likelihood]"
                     )
 
                     behaviour_module.add_data_interface(ts)
 
                 io.write(nwbfile)
-                print("DLC coordinates successfully added to NWB file with matching dimensions.")
+                print("DLC coordinates successfully added to NWB file")
         
 
     def frametime_to_index(self, frametimes):

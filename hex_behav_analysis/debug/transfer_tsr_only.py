@@ -103,9 +103,9 @@ def main():
         python transfer_tsr_only.py /data/OldCohort /data/TruncatedReportsOnly
     """
 
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"
+    cohort_dir = r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ"
     # cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"
-    destination_dir = r"/cephfs2/srogers/debug_vids/Lynn_label_frames"
+    destination_dir = r"/cephfs2/srogers/debug_vids/September_cohort_label_frames"
 
     transfer_tsr_only(cohort_dir, destination_dir)
 
