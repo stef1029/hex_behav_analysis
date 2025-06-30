@@ -12,6 +12,7 @@ setup(
     "scipy",
     "seaborn",
     "tqdm",
+    "ipython",
     
 ]
 )
