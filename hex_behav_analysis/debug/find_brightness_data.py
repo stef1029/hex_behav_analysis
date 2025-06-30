@@ -177,9 +177,9 @@ def main():
     cohorts = []
     # cohort_dir = r"/cephfs2/dwelch/Behaviour/November_cohort"  # Path to your cohort directory
     # cohorts.append(cohort_dir)
-    cohort_dir = r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE"  # Path to your cohort directory
+    cohort_dir = r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ"  # Path to your cohort directory
     cohorts.append(cohort_dir)
-    num_processes = os.cpu_count()                                        # Number of processes for each video
+    num_processes = 16                                     # Number of processes for each video
     specific_session = None                                      # Set to a session ID to process only that session
     
     # Run the analysis
