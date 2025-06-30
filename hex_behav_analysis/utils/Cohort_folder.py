@@ -1013,6 +1013,7 @@ class Cohort_folder:
     def find_DLC_files(self, session_folder):
         """
         Find DLC-related files in the session folder using modern naming patterns.
+        Ignores split files (containing _splitXofY pattern) and only returns full merged files.
         
         :param session_folder: Path to the session folder containing DLC files
         :return: Dictionary containing paths to the labelled video and coordinate files
@@ -1022,10 +1023,19 @@ class Cohort_folder:
         # Convert to Path object for easier handling
         session_path = Path(session_folder)
         
+        def is_split_file(filename):
+            """Check if a file is a split file based on naming pattern"""
+            import re
+            # Pattern to match split files: _split{X}of{Y} or _frames{start}-{end}_split{X}of{Y}
+            split_pattern = re.compile(r'(_split\d+of\d+|_frames\d+-\d+_split\d+of\d+)')
+            return bool(split_pattern.search(filename))
+        
         # Find labelled video - look for files with 'labeled' or 'labelled' in the name
         labelled_video = None
         for video_file in session_path.glob("*"):
-            if video_file.is_file() and ('labeled' in video_file.name.lower() or 'labelled' in video_file.name.lower()):
+            if (video_file.is_file() and 
+                ('labeled' in video_file.name.lower() or 'labelled' in video_file.name.lower()) and
+                not is_split_file(video_file.name)):
                 labelled_video = video_file
                 break
         
@@ -1034,7 +1044,9 @@ class Cohort_folder:
         # Find coordinates CSV - look for CSV files with DLC_Resnet50 pattern (case-insensitive)
         coords_csv = None
         for csv_file in session_path.glob("*.csv"):
-            if csv_file.is_file() and 'dlc_resnet50' in csv_file.name.lower():
+            if (csv_file.is_file() and 
+                'dlc_resnet50' in csv_file.name.lower() and
+                not is_split_file(csv_file.name)):
                 coords_csv = csv_file
                 break
         
@@ -1043,7 +1055,9 @@ class Cohort_folder:
         # Find H5 files with DLC_Resnet50 pattern (case-insensitive)
         coords_h5 = None
         for h5_file in session_path.glob("*.h5"):
-            if h5_file.is_file() and 'dlc_resnet50' in h5_file.name.lower():
+            if (h5_file.is_file() and 
+                'dlc_resnet50' in h5_file.name.lower() and
+                not is_split_file(h5_file.name)):
                 coords_h5 = h5_file
                 break
         
@@ -1052,7 +1066,10 @@ class Cohort_folder:
         # Find pickle metadata files with DLC_Resnet50 pattern (case-insensitive)
         meta_pickle = None
         for pickle_file in session_path.glob("*.pickle"):
-            if pickle_file.is_file() and 'dlc_resnet50' in pickle_file.name.lower() and '_meta' in pickle_file.name.lower():
+            if (pickle_file.is_file() and 
+                'dlc_resnet50' in pickle_file.name.lower() and 
+                '_meta' in pickle_file.name.lower() and
+                not is_split_file(pickle_file.name)):
                 meta_pickle = pickle_file
                 break
         

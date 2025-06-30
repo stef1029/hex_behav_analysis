@@ -2,38 +2,45 @@
 
 #SBATCH --partition=agpu
 #SBATCH --gres=gpu:1
-#SBATCH --mem=100G
-#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mem=120G
+#SBATCH --mail-type=FAIL
 
-# Define the index of the video this particular job should process
-VIDEO_INDEX=$SLURM_ARRAY_TASK_ID
+# Define the index for this job
+JOB_INDEX=$SLURM_ARRAY_TASK_ID
 
-# Path to your list of videos
-VIDEO_LIST="videos_to_analyse.txt"
+# Path to the split information file
+SPLIT_INFO_FILE="${DLC_SPLIT_INFO_FILE:-video_splits_info.txt}"
+SPLITS_PER_VIDEO="${DLC_SPLITS_PER_VIDEO:-8}"
 
-# Extract the specific video path for this job
-VIDEO_PATH=$(sed -n "${VIDEO_INDEX}p" $VIDEO_LIST)
+# Extract the specific split information for this job
+SPLIT_INFO=$(sed -n "${JOB_INDEX}p" $SPLIT_INFO_FILE)
 
-# Extract session ID (parent directory name) instead of video basename
+# Parse the split information
+VIDEO_INDEX=$(echo $SPLIT_INFO | cut -d':' -f1)
+SPLIT_INDEX=$(echo $SPLIT_INFO | cut -d':' -f2)
+VIDEO_PATH=$(echo $SPLIT_INFO | cut -d':' -f3-)
+
+# Extract session ID (parent directory name)
 SESSION_ID=$(basename "$(dirname "$VIDEO_PATH")")
 
-echo "Processing video: $VIDEO_PATH"
+echo "Processing video split: $VIDEO_PATH (Video $VIDEO_INDEX, Split $SPLIT_INDEX/$SPLITS_PER_VIDEO)"
 
 # Get the current directory where the script is running from
 CURRENT_DIR=$(pwd)
 
-# Create a temporary log file using session ID
-TEMP_LOG="${CURRENT_DIR}/${SESSION_ID}_temp.log"
+# Create a temporary log file using session ID and split info
+TEMP_LOG="${CURRENT_DIR}/${SESSION_ID}_split${SPLIT_INDEX}_temp.log"
 
 # Redirect all output to the temporary log file
 exec > "$TEMP_LOG" 2>&1
 
-echo "Starting job at $(date)"
+echo "Starting split job at $(date)"
 echo "Running on node: $(hostname)"
 echo "SLURM Job ID: $SLURM_JOB_ID"
 echo "Video: $VIDEO_PATH"
 echo "Session ID: $SESSION_ID"
-
+echo "Split: $SPLIT_INDEX of $SPLITS_PER_VIDEO"
+echo "memory in use is 120gb"
 
 # Load CUDA module and capture which version was loaded
 echo "=== Loading CUDA Module ==="
@@ -65,9 +72,6 @@ echo "=== SLURM GPU Configuration ==="
 echo "SLURM GPU allocation: $SLURM_GPUS_ON_NODE"
 echo "CUDA_VISIBLE_DEVICES (set by SLURM): $CUDA_VISIBLE_DEVICES"
 echo "Loaded CUDA module version: $CUDA_MODULE_VERSION"
-
-# Don't override CUDA_VISIBLE_DEVICES - let SLURM handle it
-# SLURM automatically sets this when you use --gres=gpu:1
 
 # Activate environment
 conda activate DEEPLABCUT3
@@ -111,7 +115,7 @@ else:
 # Check if the Python CUDA check failed
 if [ $? -ne 0 ]; then
     echo "ERROR: CUDA availability check failed"
-    FINAL_LOG="${CURRENT_DIR}/${SESSION_ID}_CUDA_FAILED.log"
+    FINAL_LOG="${CURRENT_DIR}/${SESSION_ID}_split${SPLIT_INDEX}_CUDA_FAILED.log"
     exec >&- 2>&-
     mv "$TEMP_LOG" "$FINAL_LOG"
     exit 1
@@ -120,9 +124,9 @@ fi
 # Change to your DLC scripts directory
 cd "/lmb/home/srogers/Dev/projects/hex_behav_analysis/hex_behav_analysis/dlc_scripts"
 
-# Run the Python script - pass GPU ID as 0 since SLURM maps the allocated GPU to index 0
-echo "Running batch_analyse.py..."
-python batch_analyse.py "$VIDEO_PATH" 0
+# Run the split analysis Python script
+echo "Running batch_analyse_split.py..."
+python batch_analyse_split.py "$VIDEO_PATH" 0 "$SPLIT_INDEX" "$SPLITS_PER_VIDEO"
 PYTHON_EXIT_CODE=$?
 
 # Check if the Python script failed and rename the log file accordingly
@@ -131,13 +135,13 @@ if [ $PYTHON_EXIT_CODE -ne 0 ]; then
     echo "Job failed at $(date)"
     
     # Rename the temporary log file to include FAILED in the name
-    FINAL_LOG="${CURRENT_DIR}/${SESSION_ID}_FAILED.log"
+    FINAL_LOG="${CURRENT_DIR}/${SESSION_ID}_split${SPLIT_INDEX}_FAILED.log"
 else
     echo "Python script completed successfully"
     echo "Job completed at $(date)"
     
     # Rename the temporary log file to include SUCCESS in the name
-    FINAL_LOG="${CURRENT_DIR}/${SESSION_ID}_SUCCESS.log"
+    FINAL_LOG="${CURRENT_DIR}/${SESSION_ID}_split${SPLIT_INDEX}_SUCCESS.log"
 fi
 
 # Close the file descriptors before moving the file

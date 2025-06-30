@@ -4,5 +4,13 @@
     "python.analysis.autoSearchPaths": true,
     "python.analysis.extraPaths": [
         "${workspaceFolder}"
-    ]
+    ],
+    "files.defaultLanguage": "shellscript",
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "files.associations": {
+        "*.sh": "shellscript"
+    },
+    "[shellscript]": {
+        "files.eol": "\n"
+    }
 }
