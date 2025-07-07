@@ -7,16 +7,31 @@ import matplotlib.cm as cm
 from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from hex_behav_analysis.utils.Session_nwb import Session
 
-# Define your colors
+# Define your colours
 colors = {
     "all_trials": (0, 0.68, 0.94),
     "visual_trials": (0.93, 0, 0.55),
     "audio_trials": (1, 0.59, 0)
 }
 
-# Function to lighten a color for shaded regions
-def lighten_color(color, factor=0.5):
-    return tuple(min(1, c + (1 - c) * factor) for c in color)
+# Function to lighten a colour for shaded regions
+def lighten_colour(colour, factor=0.5):
+    """
+    Lighten a colour by blending it with white.
+    
+    Parameters:
+    -----------
+    colour : tuple
+        RGB colour tuple with values between 0 and 1
+    factor : float
+        Lightening factor between 0 and 1
+        
+    Returns:
+    --------
+    tuple
+        Lightened RGB colour tuple
+    """
+    return tuple(min(1, c + (1 - c) * factor) for c in colour)
 
 def plot_performance_by_angle(sessions_input, 
                               plot_title='title',
@@ -36,68 +51,167 @@ def plot_performance_by_angle(sessions_input,
                               draft=True,
                               likelihood_threshold=0.6):
     """
-    This function takes a list of sessions or a dictionary of session lists and plots angular performance data.
+    Plot angular performance data from behavioural sessions.
+    
+    This function takes a list of sessions or a dictionary of session lists 
+    and plots angular performance data with various analysis options.
 
     Parameters:
     -----------
+    sessions_input : list or dict
+        List of sessions or dictionary of session lists
+    plot_title : str
+        Title for the plot
+    x_title : str
+        X-axis label
+    y_title : str
+        Y-axis label
+    bin_mode : str
+        Binning mode ('manual', 'rice', or 'tpb')
+    num_bins : int
+        Number of bins for manual mode
+    trials_per_bin : int
+        Target trials per bin for 'tpb' mode
+    plot_mode : str
+        Plot style ('radial' or 'linear_comparison')
     plot_type : str
         Type of plot to generate:
         - 'hit_rate': Raw performance/hit rate
         - 'bias_corrected': Bias-corrected performance
         - 'bias': Raw response bias (all trials included)
         - 'bias_incorrect': Bias histogram using only incorrect trials
+    cue_modes : list
+        List of cue modes to analyse
+    error_bars : str
+        Type of error bars ('SEM')
+    plot_individual_mice : bool
+        Whether to plot individual mouse data
+    exclusion_mice : list
+        List of mice to exclude from analysis
+    output_path : Path
+        Path to save output files
+    plot_save_name : str
+        Base name for saved files
+    draft : bool
+        Whether this is a draft plot
     likelihood_threshold : float
         Threshold for ear detection likelihood (default: 0.6)
     """
 
     def calc_performance(bins):
-        """Convert a dict of lists of 0/1 correctness into mean performance per bin."""
+        """
+        Convert a dict of lists of 0/1 correctness into mean performance per bin.
+        
+        Parameters:
+        -----------
+        bins : dict
+            Dictionary mapping bin keys to lists of correctness values
+            
+        Returns:
+        --------
+        list
+            Mean performance for each bin
+        """
         return [sum(bins[key]) / len(bins[key]) if bins[key] else 0 for key in sorted(bins)]
 
     def calc_bias(bins, total_trials):
         """
         Calculate bias as proportion of touches to each angle.
-        'bins' is a dict of angle_bin -> list of "touch" counts (1 if a touch occurred).
-        'total_trials' is the total number of trials from which we want to measure bias.
+        
+        Parameters:
+        -----------
+        bins : dict
+            Dictionary mapping angle bins to lists of touch counts
+        total_trials : int
+            Total number of trials for normalisation
+            
+        Returns:
+        --------
+        list
+            Normalised bias values for each bin
         """
         bias_values = [sum(bins[key]) / total_trials if bins[key] else 0 for key in sorted(bins)]
-        # Normalize so sum equals 1
+        # Normalise so sum equals 1
         total = sum(bias_values)
         return [v / total if total > 0 else 0 for v in bias_values]
 
     def get_trials(sessions):
         """
-        Collect all trial data, organized by mouse -> cue_mode -> trials
+        Collect all trial data, organised by mouse -> cue_mode -> trials.
+        
+        Parameters:
+        -----------
+        sessions : list
+            List of session objects
+            
+        Returns:
+        --------
+        tuple
+            (mice_dict, total_trials_dict) containing organised trial data
         """
         mice = {}
         total_trials = {mode: [] for mode in cue_modes}
         
+        print(f"\n=== TRIAL COLLECTION DEBUG ===")
+        print(f"Processing {len(sessions)} sessions")
+        print(f"Cue modes: {cue_modes}")
+        print(f"Exclusion mice: {exclusion_mice}")
+        
+        session_count = 0
         for session in sessions:
+            session_count += 1
             mouse = session.session_dict.get('mouse_id', 'unknown')
+            print(f"\nSession {session_count}: Mouse {mouse}")
+            
             if mouse in exclusion_mice:
+                print(f"  -> Excluding mouse {mouse}")
                 continue
                 
             if mouse not in mice:
                 mice[mouse] = {mode: {'trials': [], 'bins': {}, 'bias_bins': {}, 'bias_incorrect_bins': {}} 
                                for mode in cue_modes}
+                print(f"  -> Added new mouse {mouse}")
+            
+            trial_counts = {mode: 0 for mode in cue_modes}
+            catch_trial_count = 0
             
             for trial in session.trials:
                 # Exclude catch trials
                 if trial.get('catch', False):
+                    catch_trial_count += 1
                     continue
 
                 # Distribute trials across the chosen cue_modes
                 if "all_trials" in cue_modes:
                     mice[mouse]['all_trials']['trials'].append(trial)
                     total_trials['all_trials'].append(trial)
+                    trial_counts['all_trials'] += 1
                 
                 if "visual_trials" in cue_modes and 'audio' not in trial.get('correct_port', ''):
                     mice[mouse]['visual_trials']['trials'].append(trial)
                     total_trials['visual_trials'].append(trial)
+                    trial_counts['visual_trials'] += 1
                 
                 if "audio_trials" in cue_modes and 'audio' in trial.get('correct_port', ''):
                     mice[mouse]['audio_trials']['trials'].append(trial)
                     total_trials['audio_trials'].append(trial)
+                    trial_counts['audio_trials'] += 1
+            
+            print(f"  -> Catch trials excluded: {catch_trial_count}")
+            for mode in cue_modes:
+                if mode in trial_counts:
+                    print(f"  -> {mode}: {trial_counts[mode]} trials")
+        
+        print(f"\n=== FINAL TRIAL SUMMARY ===")
+        print(f"Total mice included: {len(mice)}")
+        for mouse in mice:
+            print(f"\nMouse {mouse}:")
+            for mode in cue_modes:
+                print(f"  {mode}: {len(mice[mouse][mode]['trials'])} trials")
+        
+        print(f"\nAggregated totals:")
+        for mode in cue_modes:
+            print(f"  {mode}: {len(total_trials[mode])} trials across all mice")
         
         return mice, total_trials
 
@@ -108,8 +222,21 @@ def plot_performance_by_angle(sessions_input,
         plt.figure(figsize=(10, 6))
         ax = plt.subplot(111)
 
-    # Handle color selection for multiple datasets
-    def get_colors(number_of_sessions):
+    # Handle colour selection for multiple datasets
+    def get_colours(number_of_sessions):
+        """
+        Get colour palette for multiple datasets.
+        
+        Parameters:
+        -----------
+        number_of_sessions : int
+            Number of datasets to colour
+            
+        Returns:
+        --------
+        list
+            List of colour tuples
+        """
         if number_of_sessions <= 3:
             return [colors['all_trials'], colors['visual_trials'], colors['audio_trials']][:number_of_sessions]
         else:
@@ -121,18 +248,26 @@ def plot_performance_by_angle(sessions_input,
         if cue_modes != ['all_trials']:
             raise ValueError("When providing a sessions dictionary, cue_modes must be ['all_trials'].")
         sessions_dict = sessions_input
-        colors_list = get_colors(len(sessions_dict))
+        colours_list = get_colours(len(sessions_dict))
     else:
         sessions_dict = {'Data': sessions_input}
-        colors_list = get_colors(1)
+        colours_list = get_colours(1)
+
+    print(f"\n=== DATASET PROCESSING ===")
+    print(f"Number of datasets: {len(sessions_dict)}")
+    print(f"Dataset names: {list(sessions_dict.keys())}")
 
     # Process each dataset
-    for dataset_name, sessions in sessions_dict.items():
+    for dataset_idx, (dataset_name, sessions) in enumerate(sessions_dict.items()):
+        print(f"\n--- Processing dataset: {dataset_name} ---")
+        
         data_sets = {}
         data_sets['mice'], data_sets['total_trials'] = get_trials(sessions)
 
         # Count total number of trials across relevant modes to pick bin size
         n = sum(len(data_sets['total_trials'][mode]) for mode in cue_modes)
+        print(f"\nTotal trials for binning calculation: {n}")
+        
         if bin_mode == 'manual':
             num_bins_used = num_bins
         elif bin_mode == 'rice':
@@ -141,6 +276,9 @@ def plot_performance_by_angle(sessions_input,
             num_bins_used = int(n / trials_per_bin)
         else:
             raise ValueError('bin_mode must be "manual", "rice", or "tpb"')
+
+        print(f"Binning mode: {bin_mode}")
+        print(f"Number of bins used: {num_bins_used}")
 
         # Set angle limits based on plot_mode
         if plot_mode in ['linear_comparison', 'bar_split', 'bar_split_overlay']:
@@ -154,8 +292,13 @@ def plot_performance_by_angle(sessions_input,
         angle_range = limits[1] - limits[0]
         bin_size = angle_range / num_bins_used
 
+        print(f"Angle limits: {limits}")
+        print(f"Bin size: {bin_size:.2f} degrees")
+
         # For each cue mode, collect performance/bias/bias_incorrect
         for cue_group in cue_modes:
+            print(f"\n=== PROCESSING CUE GROUP: {cue_group} ===")
+            
             # Prepare structure for storing average stats across mice
             plotting_data = {
                 'performance': [],
@@ -175,7 +318,10 @@ def plot_performance_by_angle(sessions_input,
             }
 
             # ----- Populate bins for each mouse -----
+            mouse_stats = {}
             for mouse in data_sets['mice']:
+                print(f"\n--- Processing mouse: {mouse} ---")
+                
                 # Dictionary of angle bin -> list of correctness (1 or 0)
                 perf_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
 
@@ -185,15 +331,29 @@ def plot_performance_by_angle(sessions_input,
                 # For "bias_incorrect", count only from incorrect trials
                 bias_incorrect_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
 
+                # Track statistics for this mouse
+                trials_processed = 0
+                trials_skipped_no_turn_data = 0
+                trials_skipped_low_likelihood = 0
+                trials_with_performance_data = 0
+                trials_with_bias_data = 0
+                trials_incorrect_with_bias_data = 0
+
                 # Go through each trial
                 for trial in data_sets['mice'][mouse][cue_group]['trials']:
+                    trials_processed += 1
+                    
                     # If there's no "turn_data", skip
                     if trial.get("turn_data") is None:
+                        trials_skipped_no_turn_data += 1
                         continue
 
                     # Check ear detection likelihood
-                    if (trial["turn_data"].get("left_ear_likelihood", 1) < likelihood_threshold or
-                        trial["turn_data"].get("right_ear_likelihood", 1) < likelihood_threshold):
+                    left_likelihood = trial["turn_data"].get("left_ear_likelihood", 1)
+                    right_likelihood = trial["turn_data"].get("right_ear_likelihood", 1)
+                    
+                    if (left_likelihood < likelihood_threshold or right_likelihood < likelihood_threshold):
+                        trials_skipped_low_likelihood += 1
                         continue
 
                     angle = trial["turn_data"]["cue_presentation_angle"]
@@ -208,6 +368,7 @@ def plot_performance_by_angle(sessions_input,
                     for bin_start in perf_bins:
                         if bin_start <= angle < bin_start + bin_size:
                             perf_bins[bin_start].append(1 if is_correct else 0)
+                            trials_with_performance_data += 1
                             break
 
                     # Fill in "standard" bias bins
@@ -215,6 +376,7 @@ def plot_performance_by_angle(sessions_input,
                         for bin_start in bias_bins:
                             if bin_start <= port_touched_angle < bin_start + bin_size:
                                 bias_bins[bin_start].append(1)
+                                trials_with_bias_data += 1
                                 break
 
                     # Fill in "incorrect-only" bias bins
@@ -222,7 +384,21 @@ def plot_performance_by_angle(sessions_input,
                         for bin_start in bias_incorrect_bins:
                             if bin_start <= port_touched_angle < bin_start + bin_size:
                                 bias_incorrect_bins[bin_start].append(1)
+                                trials_incorrect_with_bias_data += 1
                                 break
+
+                print(f"  Total trials for mouse: {trials_processed}")
+                print(f"  Skipped (no turn data): {trials_skipped_no_turn_data}")
+                print(f"  Skipped (low likelihood): {trials_skipped_low_likelihood}")
+                print(f"  Used for performance: {trials_with_performance_data}")
+                print(f"  Used for bias: {trials_with_bias_data}")
+                print(f"  Used for incorrect bias: {trials_incorrect_with_bias_data}")
+
+                # Show bin distributions
+                print(f"  Performance bins (trials per bin):")
+                for bin_start in sorted(perf_bins.keys()):
+                    bin_centre = bin_start + bin_size/2
+                    print(f"    {bin_centre:6.1f}°: {len(perf_bins[bin_start])} trials")
 
                 # Store the aggregated bins back to the mouse's record if needed
                 data_sets['mice'][mouse][cue_group].update({
@@ -260,7 +436,28 @@ def plot_performance_by_angle(sessions_input,
                     'bias_corrected': mouse_bias_corrected.tolist()
                 })
 
+                # Store stats for summary
+                mouse_stats[mouse] = {
+                    'trials_processed': trials_processed,
+                    'trials_used': trials_with_performance_data,
+                    'mean_performance': np.mean(mouse_performance),
+                    'mean_bias': np.mean(mouse_bias),
+                    'num_incorrect_trials': num_incorrect_trials
+                }
+
+            # Print mouse summary
+            print(f"\n=== MOUSE SUMMARY FOR {cue_group} ===")
+            for mouse, stats in mouse_stats.items():
+                print(f"Mouse {mouse}:")
+                print(f"  Trials processed: {stats['trials_processed']}")
+                print(f"  Trials used: {stats['trials_used']}")
+                print(f"  Mean performance: {stats['mean_performance']:.3f}")
+                print(f"  Mean bias: {stats['mean_bias']:.3f}")
+                print(f"  Incorrect trials: {stats['num_incorrect_trials']}")
+
             # ----- Compute across-mice statistics -----
+            print(f"\n=== COMPUTING ACROSS-MICE STATISTICS ===")
+            
             # Convert each measure to an array [mouse x angle_bin]
             performance_array = np.array([
                 data_sets['mice'][m][cue_group]['performance'] for m in data_sets['mice']
@@ -276,6 +473,9 @@ def plot_performance_by_angle(sessions_input,
             ])
 
             n_mice = len(data_sets['mice'])
+            print(f"Number of mice: {n_mice}")
+            print(f"Performance array shape: {performance_array.shape}")
+            print(f"Bias array shape: {bias_array.shape}")
 
             # Means + spreads
             mean_performance = performance_array.mean(axis=0)
@@ -289,6 +489,9 @@ def plot_performance_by_angle(sessions_input,
 
             mean_bias_corrected = bias_corrected_array.mean(axis=0)
             sem_bias_corrected = bias_corrected_array.std(axis=0) / np.sqrt(n_mice)
+
+            print(f"Mean performance across bins: {mean_performance}")
+            print(f"Mean bias across bins: {mean_bias}")
 
             # Fill in plotting_data with aggregated stats
             # Sorted by bin_start in ascending order
@@ -310,7 +513,13 @@ def plot_performance_by_angle(sessions_input,
                 'bin_titles': [f"{b + (bin_size / 2):.2f}" for b in bin_list]
             })
 
+            print(f"Bin centres: {plotting_data['bin_titles']}")
+
             # ----- Plotting -----
+            print(f"\n=== PLOTTING ===")
+            print(f"Plot type: {plot_type}")
+            print(f"Plot mode: {plot_mode}")
+            
             angles_deg = np.array(plotting_data['bin_titles'], dtype=np.float64)
 
             if plot_mode == 'radial':
@@ -336,9 +545,11 @@ def plot_performance_by_angle(sessions_input,
                     plot_data = np.append(plotting_data['bias'], plotting_data['bias'][0])
                     error_data = np.append(plotting_data['bias_sem'], plotting_data['bias_sem'][0])
 
-                # Pick color for the line
-                color = colors.get(cue_group, (0.5, 0.5, 0.5)) \
-                    if len(cue_modes) > 1 else colors_list[list(sessions_dict.keys()).index(dataset_name)]
+                print(f"Plot data range: {np.min(plot_data):.3f} to {np.max(plot_data):.3f}")
+
+                # Pick colour for the line
+                colour = colors.get(cue_group, (0.5, 0.5, 0.5)) \
+                    if len(cue_modes) > 1 else colours_list[list(sessions_dict.keys()).index(dataset_name)]
 
                 # Decide label
                 if len(cue_modes) > 1:
@@ -347,10 +558,10 @@ def plot_performance_by_angle(sessions_input,
                     label = cue_group
 
                 # Plot
-                ax.plot(angles_rad, plot_data, marker='o', label=label, color=color)
+                ax.plot(angles_rad, plot_data, marker='o', label=label, color=colour)
                 if error_bars == 'SEM':
                     ax.fill_between(angles_rad, plot_data - error_data, plot_data + error_data,
-                                    alpha=0.3, color=lighten_color(color))
+                                    alpha=0.3, color=lighten_colour(colour))
 
             elif plot_mode == 'linear_comparison':
                 # Decide which metric to plot
@@ -367,9 +578,11 @@ def plot_performance_by_angle(sessions_input,
                     plot_data = plotting_data['bias']
                     error_data = plotting_data['bias_sem']
 
-                # Pick color for the line
-                color = colors.get(cue_group, (0.5, 0.5, 0.5)) \
-                    if len(cue_modes) > 1 else colors_list[list(sessions_dict.keys()).index(dataset_name)]
+                print(f"Plot data range: {np.min(plot_data):.3f} to {np.max(plot_data):.3f}")
+
+                # Pick colour for the line
+                colour = colors.get(cue_group, (0.5, 0.5, 0.5)) \
+                    if len(cue_modes) > 1 else colours_list[list(sessions_dict.keys()).index(dataset_name)]
 
                 # Decide label
                 if len(cue_modes) > 1:
@@ -378,10 +591,10 @@ def plot_performance_by_angle(sessions_input,
                     label = f"{dataset_name} - {cue_group}"
 
                 # Plot
-                ax.plot(angles_deg, plot_data, marker='o', label=label, color=color)
+                ax.plot(angles_deg, plot_data, marker='o', label=label, color=colour)
                 if error_bars == 'SEM':
                     ax.fill_between(angles_deg, plot_data - error_data, plot_data + error_data,
-                                    alpha=0.3, color=lighten_color(color))
+                                    alpha=0.3, color=lighten_colour(colour))
 
     # Final plot cosmetics
     ax.legend(loc='upper right')
@@ -455,3 +668,4 @@ def plot_performance_by_angle(sessions_input,
         plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
     
     plt.show()
+    print(f"\n=== PLOTTING COMPLETE ===")

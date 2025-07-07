@@ -466,6 +466,18 @@ class Session:
             # session metadata looks like this: "phase:x;rig;y". Extract x and y:
             self.phase = str(session_metadata.split(";")[0].split(":")[1])
             self.rig_id = int(session_metadata.split(";")[1].split(":")[1])
+            
+            # Always load video path and timestamps - regardless of pickle loading
+            if 'behaviour_video' in nwbfile.acquisition:
+                self.session_video_object = nwbfile.acquisition['behaviour_video']
+                self.session_video = self.session_directory / Path(self.session_video_object.external_file[0])
+                self.video_timestamps = self.session_video_object.timestamps[:]
+                # print(f"Loaded video path: {self.session_video}")
+            else:
+                print("WARNING: No 'behaviour_video' found in NWB acquisition")
+                self.session_video = None
+                self.session_video_object = None
+                self.video_timestamps = None
 
         # check if dlc coords are in nwb file already:
         if not DLC_coords_present:
@@ -573,99 +585,100 @@ class Session:
         return index_frametimes
 
     def add_video_data_to_trials(self):
-        # get each trial object and attach a list of the relevant video frames between the start and end of the trial,
-        # and also a dataframe of the DLC data for the same time period, using those frame times as the indeices for the slice.
-        with NWBHDF5IO(self.nwb_file_path, 'r') as io:
-            nwbfile = io.read()
-            self.session_video_object = nwbfile.acquisition['behaviour_video']
-            self.session_video = self.session_directory / Path(self.session_video_object.external_file[0])
-            print(f"session_video = {self.session_video}")
-            self.video_timestamps = self.session_video_object.timestamps[:]
-            for j, trial in enumerate(self.trials):
-                if trial["phase"] != "1" or trial["phase"] != "2":
-                    start = trial["cue_start"]
-                    if trial["next_sensor"].get("sensor_start") != None:
-                        end = trial["next_sensor"]["sensor_start"]
+            # get each trial object and attach a list of the relevant video frames between the start and end of the trial,
+            # and also a dataframe of the DLC data for the same time period, using those frame times as the indeices for the slice.
+            
+            # Video path should already be loaded in load_data(), but check just in case
+            if not hasattr(self, 'session_video') or self.session_video is None:
+                print("WARNING: Video path not loaded, attempting to load from NWB file")
+                with NWBHDF5IO(self.nwb_file_path, 'r') as io:
+                    nwbfile = io.read()
+                    if 'behaviour_video' in nwbfile.acquisition:
+                        self.session_video_object = nwbfile.acquisition['behaviour_video']
+                        self.session_video = self.session_directory / Path(self.session_video_object.external_file[0])
+                        self.video_timestamps = self.session_video_object.timestamps[:]
                     else:
+                        print("ERROR: Cannot find behaviour_video in NWB file")
+                        return
+            
+            with NWBHDF5IO(self.nwb_file_path, 'r') as io:
+                nwbfile = io.read()
+                
+                for j, trial in enumerate(self.trials):
+                    if trial["phase"] != "1" or trial["phase"] != "2":
+                        start = trial["cue_start"]
+                        if trial["next_sensor"].get("sensor_start") != None:
+                            end = trial["next_sensor"]["sensor_start"]
+                        else:
+                            end = self.trials[j+1]["cue_start"] if j+1 < len(self.trials) else self.last_timestamp
+
+                    if trial["phase"] == "1" or trial["phase"] == "2":
+                        start = trial["cue_start"]
                         end = self.trials[j+1]["cue_start"] if j+1 < len(self.trials) else self.last_timestamp
 
-                if trial["phase"] == "1" or trial["phase"] == "2":
-                    start = trial["cue_start"]
-                    end = self.trials[j+1]["cue_start"] if j+1 < len(self.trials) else self.last_timestamp
+                    video_frames = []
+                    
+                    # use bisect to find the frametimes from the indexed_frametimes dictionary
+                    start_index = np.searchsorted(self.video_timestamps, start, side='left')
+                    if end != None:
+                        end_index = np.searchsorted(self.video_timestamps, end, side='left')
+                    else:
+                        end_index = len(self.video_timestamps) - 1
 
-                video_frames = []
-                
+                    # for each index in between the start and end, see if it's in the indexed_frametimes dictionary, and if it is, add it to the video_frames list.
+                    # bug happened here where I was appending the frame_ID not the frame number.
+                    # when the video processor later went to grab the appropriate frame, it grabbed the wrong frame, since it needed the index in the video.
+                    for i in range(start_index, end_index):
+                        video_frames.append(i)
+                    
+                    if len(video_frames) != 0:
+                        if 'behaviour_coords' in nwbfile.processing:
+                            behaviour_module = nwbfile.processing['behaviour_coords']
 
-                # use bisect to find the frametimes from the indexed_frametimes dictionary
+                            # Initialize an empty dictionary to store DLC data for the trial
+                            trial_DLC_data = {}
 
-                start_index = np.searchsorted(self.video_timestamps, start, side='left')
-                if end != None:
-                    end_index = np.searchsorted(self.video_timestamps, end, side='left')
-                else:
-                    end_index = self.video_timestamps[-1]
+                            for time_series_name in behaviour_module.data_interfaces:
+                                ts = behaviour_module.data_interfaces[time_series_name]
 
-                # for each index in between the start and end, see if it's in the indexed_frametimes dictionary, and if it is, add it to the video_frames list.
-                # bug happened here where I was appending the frame_ID not the frame number.
-                # when the video processor later went to grab the appropriate frame, it grabbed the wrong frame, since it needed the index in the video.
-                for i in range(start_index, end_index):
-                    video_frames.append(i)
-                
+                                # Get the timestamps and data for the body part
+                                timestamps = ts.timestamps[:]
+                                data = ts.data[:]
 
+                                # Find indices for the trial time range
+                                start_index = np.searchsorted(timestamps, start, side='left')
+                                end_index = np.searchsorted(timestamps, end, side='left')
 
-                if len(video_frames) != 0:
-                    if 'behaviour_coords' in nwbfile.processing:
-                        behaviour_module = nwbfile.processing['behaviour_coords']
+                                # Slice the data and timestamps for the trial
+                                trial_data = data[start_index:end_index]
+                                trial_timestamps = timestamps[start_index:end_index]
 
-                        # Initialize an empty dictionary to store DLC data for the trial
-                        trial_DLC_data = {}
+                                trial_DLC_data[time_series_name] = trial_data
+                            
+                            # Initialize a dictionary to hold the data for DataFrame construction
+                            dlc_data_dict = {}
 
-                        for time_series_name in behaviour_module.data_interfaces:
-                            ts = behaviour_module.data_interfaces[time_series_name]
+                            for body_part, data in trial_DLC_data.items():
+                                # Assuming 'data' is a 2D array with columns for x, y, and confidence
+                                x, y, likelihood = data.transpose()  # Transpose to separate the columns
 
-                            # Get the timestamps and data for the body part
-                            timestamps = ts.timestamps[:]
-                            data = ts.data[:]
-                            # print(data)
+                                # Populate the dictionary for DataFrame creation
+                                dlc_data_dict[(body_part, 'x')] = x
+                                dlc_data_dict[(body_part, 'y')] = y
+                                dlc_data_dict[(body_part, 'likelihood')] = likelihood
 
-                            # Find indices for the trial time range
-                            start_index = np.searchsorted(timestamps, start, side='left')
-                            end_index = np.searchsorted(timestamps, end, side='left')
+                            if len(video_frames) > data.shape[0]:
+                                video_frames = video_frames[:data.shape[0]]
 
-                            # Slice the data and timestamps for the trial
-                            trial_data = data[start_index:end_index]
-                            trial_timestamps = timestamps[start_index:end_index]
+                            # Create a MultiIndex DataFrame from the dictionary
+                            dlc_df = pd.DataFrame(dlc_data_dict, index=video_frames)
 
-                            trial_DLC_data[time_series_name] = trial_data
-                        
-                        # Initialize a dictionary to hold the data for DataFrame construction
-                        dlc_data_dict = {}
-
-                        for body_part, data in trial_DLC_data.items():
-                            # Assuming 'data' is a 2D array with columns for x, y, and confidence
-                            # print(data)
-                            x, y, likelihood = data.transpose()  # Transpose to separate the columns
-
-                            # Populate the dictionary for DataFrame creation
-                            dlc_data_dict[(body_part, 'x')] = x
-                            dlc_data_dict[(body_part, 'y')] = y
-                            dlc_data_dict[(body_part, 'likelihood')] = likelihood
-
-                        if len(video_frames) > data.shape[0]:
-                            video_frames = video_frames[:data.shape[0]]
-
-                        # Create a MultiIndex DataFrame from the dictionary
-                        dlc_df = pd.DataFrame(dlc_data_dict, index=video_frames)
-
-                        # # Convert the dictionary to a DataFrame
-                        # dlc_df = pd.DataFrame(trial_DLC_data, index=trial_timestamps)
-                        # dlc_df.index.name = 'timestamps'
-
-                        dlc_df['timestamps'] = trial_timestamps
+                            dlc_df['timestamps'] = trial_timestamps
+                            trial["video_frames"] = video_frames
+                            trial["DLC_data"] = dlc_df
+                    else:
                         trial["video_frames"] = video_frames
-                        trial["DLC_data"] = dlc_df
-                else:
-                    trial["video_frames"] = video_frames
-                    trial["DLC_data"] = None
+                        trial["DLC_data"] = None
 
                 # also add the DLC data for the same time period, if it's been found:
                 # if self.DLC_coords is not None:

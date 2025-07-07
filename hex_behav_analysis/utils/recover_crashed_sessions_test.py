@@ -150,8 +150,17 @@ def recover_frame_ids(json_file_path, verbose=False):
                 log_warning(f"JSON file {json_path.name} is missing required fields: {missing_fields}", verbose)
                 # Continue processing to add the missing fields
         
-        # Construct backup file path - use the exact filename format you specified
-        backup_path = json_path.parent / "frame_ids_backup.txt"
+        # Construct backup file path based on JSON filename pattern
+        # Extract the base name from JSON file (remove '_Tracker_data.json')
+        json_stem = json_path.stem
+        if json_stem.endswith('_Tracker_data'):
+            base_name = json_stem[:-13]  # Remove '_Tracker_data' suffix
+        else:
+            base_name = json_stem
+            
+        # Construct backup filename: base_name + '_frame_ids_backup.txt'
+        backup_filename = f"{base_name}_frame_ids_backup.txt"
+        backup_path = json_path.parent / backup_filename
         
         # Add more debug logging for backup file
         log_debug(f"Looking for backup file at: {backup_path.absolute()}", verbose)
@@ -295,6 +304,8 @@ def recover_from_backup(backup_file_path, verbose=False):
     Recovers data from a backup CSV file and converts it to proper HDF5 format.
     Only processes the backup if no corresponding HDF5 file exists or if it's corrupted.
     
+    Handles variable-length messages by truncating or padding to match expected channel count.
+    
     If the CSV contains timestamps in a third column, it will use those timestamps instead
     of generating them based on sample rate.
     
@@ -332,6 +343,7 @@ def recover_from_backup(backup_file_path, verbose=False):
     messages_from_arduino = []
     actual_timestamps = []
     has_timestamps = False
+    message_length_stats = {}  # Track different message lengths
     
     try:
         log_info(f"\nProcessing backup file: {backup_path}", verbose)
@@ -372,25 +384,34 @@ def recover_from_backup(backup_file_path, verbose=False):
                 csvfile.seek(0)
             
             csv_reader = csv.reader(csvfile)
-            for row in csv_reader:
+            skipped_rows = 0
+            invalid_timestamp_count = 0
+            
+            for row_num, row in enumerate(csv_reader):
                 # Handle varying row formats
                 if len(row) < 2:
-                    log_warning(f"Skipping row with insufficient columns: {row}", verbose)
+                    log_warning(f"Skipping row {row_num} with insufficient columns: {row}", verbose)
+                    skipped_rows += 1
                     continue
                     
                 try:
                     message_id = int(row[0])
                     message_data = int(row[1])
+                    
+                    # Check message data bit length to track statistics
+                    bit_length = message_data.bit_length()
+                    message_length_stats[bit_length] = message_length_stats.get(bit_length, 0) + 1
+                    
                     messages_from_arduino.append([message_id, message_data])
                     
                     # If there's a third column with timestamps, collect it
                     if len(row) >= 3 and row[2]:
                         try:
-                            print("Found 3 rows in csv file")
                             timestamp = float(row[2])
                             actual_timestamps.append(timestamp)
                         except ValueError:
-                            log_warning(f"Invalid timestamp value in row {row}", verbose)
+                            log_warning(f"Invalid timestamp value in row {row_num}: {row[2]}", verbose)
+                            invalid_timestamp_count += 1
                             # If we encounter invalid timestamp, revert to using sample rate
                             if len(actual_timestamps) > 0:
                                 log_warning(f"Some timestamps were invalid, reverting to sample rate calculation", verbose)
@@ -399,7 +420,7 @@ def recover_from_backup(backup_file_path, verbose=False):
                             
                     elif has_timestamps:
                         # If we expected timestamps but this row doesn't have one
-                        log_warning(f"Missing timestamp in row {row}", verbose)
+                        log_warning(f"Missing timestamp in row {row_num}: {row}", verbose)
                         # Revert to using sample rate
                         if len(actual_timestamps) > 0:
                             log_warning(f"Some rows missing timestamps, reverting to sample rate calculation", verbose)
@@ -407,11 +428,24 @@ def recover_from_backup(backup_file_path, verbose=False):
                             has_timestamps = False
                     
                 except ValueError as e:
-                    log_warning(f"Error parsing row {row}: {e}", verbose)
+                    log_warning(f"Error parsing row {row_num} {row}: {e}", verbose)
+                    skipped_rows += 1
                     continue
+            
+            if skipped_rows > 0:
+                log_warning(f"Skipped {skipped_rows} invalid rows during processing", verbose)
+            
+            if invalid_timestamp_count > 0:
+                log_warning(f"Found {invalid_timestamp_count} invalid timestamps", verbose)
                     
         if not messages_from_arduino:
             raise ValueError("No valid data could be parsed from the CSV file")
+        
+        # Log message length statistics
+        if verbose and message_length_stats:
+            log_info("Message length distribution:", verbose)
+            for bit_length, count in sorted(message_length_stats.items()):
+                log_info(f"  {bit_length} bits: {count} messages ({count/len(messages_from_arduino)*100:.1f}%)", verbose)
             
         # Verify we have timestamps for all messages if using timestamp column
         if has_timestamps and len(actual_timestamps) != len(messages_from_arduino):
@@ -438,23 +472,58 @@ def recover_from_backup(backup_file_path, verbose=False):
     
     log_info(f"Processing {num_messages} messages with {num_channels} channels", verbose)
     
-    # Process data
+    # Process data with robust handling of variable message lengths
     message_ids = np.array([message[0] for message in messages_from_arduino], dtype=np.uint32)
     message_data = np.array([message[1] for message in messages_from_arduino], dtype=np.uint64)
     channel_data_array = np.zeros((num_messages, num_channels), dtype=np.uint8)
     
+    # Process data with proper zero-padding for shorter messages and skipping of longer ones
+    valid_messages = []
+    valid_message_indices = []
+    skipped_long_messages = 0
+    
     for i, message in enumerate(message_data):
-        binary_message = np.array(list(np.binary_repr(message, width=num_channels)), dtype=np.uint8)
-        binary_message = binary_message[::-1]
-        channel_data_array[i] = binary_message
+        # Check if message is too long (indicates corruption)
+        if message.bit_length() > num_channels:
+            skipped_long_messages += 1
+            if skipped_long_messages <= 5:  # Only log first few occurrences
+                log_debug(f"Message {i}: Skipped message with {message.bit_length()} bits (> {num_channels})", verbose)
+            continue
+        
+        # Convert to binary representation with proper zero-padding
+        # Always pad to num_channels width to handle leading zeros correctly
+        binary_repr = np.binary_repr(message, width=num_channels)
+        binary_array = np.array(list(binary_repr), dtype=np.uint8)
+        binary_array = binary_array[::-1]  # Reverse for little-endian
+        
+        valid_messages.append(binary_array)
+        valid_message_indices.append(i)
+    
+    # Create channel data array from valid messages only
+    if not valid_messages:
+        raise ValueError("No valid messages found after filtering")
+        
+    channel_data_array = np.array(valid_messages, dtype=np.uint8)
+    
+    # Update message arrays to only include valid messages
+    message_ids = message_ids[valid_message_indices]
+    message_data = message_data[valid_message_indices]
+    num_messages = len(valid_messages)
+    
+    # Log summary of adjustments made
+    if skipped_long_messages > 0:
+        log_warning(f"Skipped {skipped_long_messages} messages that were longer than {num_channels} bits", verbose)
+    
+    log_info(f"Successfully processed {num_messages} valid messages (shorter messages were zero-padded)", verbose)
     
     # Generate timestamps
     sample_rate = 1000  # Default sample rate in Hz
     
+    # Update timestamps to match valid messages only
     if has_timestamps and actual_timestamps:
-        # Use actual timestamps from the file
-        timestamps = np.array(actual_timestamps)
-        log_info(f"Using {len(timestamps)} actual timestamps from CSV data", verbose)
+        # Filter timestamps to match valid messages
+        timestamps = np.array([actual_timestamps[i] for i in valid_message_indices])
+        log_info(f"Using {len(timestamps)} actual timestamps from CSV data (filtered to valid messages)", verbose)
         
         # Calculate effective sample rate for metadata (average)
         if len(timestamps) > 1:
@@ -488,6 +557,8 @@ def recover_from_backup(backup_file_path, verbose=False):
             h5f.attrs['time'] = str(datetime.now())
             h5f.attrs['No_of_messages'] = num_messages
             h5f.attrs['reliability'] = 100.0
+            h5f.attrs['skipped_long_messages'] = skipped_long_messages
+            h5f.attrs['skipped_rows'] = skipped_rows if 'skipped_rows' in locals() else 0
             
             # Calculate time_taken from actual timestamps if available
             if has_timestamps and len(timestamps) > 1:
@@ -509,6 +580,8 @@ def recover_from_backup(backup_file_path, verbose=False):
         # Verify the new file is valid
         if check_hdf5_integrity(hdf5_path, verbose):
             log_success(f"Successfully created and verified HDF5 file: {hdf5_path}", verbose)
+            if skipped_long_messages > 0:
+                log_warning(f"Note: File processed with {skipped_long_messages} skipped oversized messages", verbose)
             mark_as_processed(backup_path, "hdf5_conversion", verbose)
             return True
         else:

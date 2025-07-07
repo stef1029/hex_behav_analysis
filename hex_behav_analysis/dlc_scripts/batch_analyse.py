@@ -1,4 +1,5 @@
 from deeplabcut import analyze_videos
+from deeplabcut import video_inference_superanimal
 import time
 import sys
 
@@ -8,19 +9,32 @@ import sys
 # config = r'/cephfs2/dwelch/6-choice_behaviour_DLC_model/config.yaml'
 config = r'/cephfs2/srogers/DEEPLABCUT_models/LMDC_model_videos/LMDC-StefanRC-2025-03-11/config.yaml'
 
+# def analyse(video_path, gpu_id):
+#     start_time = time.perf_counter()
+#     print(f"Analyzing {str(video_path)}")
+#     print(f"Using GPU {gpu_id}")
+#     analyze_videos(config = config,
+#                           videos = [video_path], 
+#                           videotype='.avi', 
+#                           save_as_csv=True, 
+#                           gputouse=gpu_id)
+#     # give time in minutes and seconds, rounded:
+#     print(f"""Analysis of {str(video_path)} complete. 
+#                 \rTook: {round((time.perf_counter() - start_time)/60, 2)} minutes 
+#                 \rand {round((time.perf_counter() - start_time)%60, 2)} seconds""")
+    
 def analyse(video_path, gpu_id):
     start_time = time.perf_counter()
-    print(f"Analyzing {str(video_path)}")
+    print(f"Analyzing {str(video_path)} with SuperAnimal")
     print(f"Using GPU {gpu_id}")
-    analyze_videos(config = config,
-                          videos = [video_path], 
-                          videotype='.avi', 
-                          save_as_csv=True, 
-                          gputouse=gpu_id)
-    # give time in minutes and seconds, rounded:
-    print(f"""Analysis of {str(video_path)} complete. 
-                \rTook: {round((time.perf_counter() - start_time)/60, 2)} minutes 
-                \rand {round((time.perf_counter() - start_time)%60, 2)} seconds""")
+    video_inference_superanimal(
+        videos=[video_path],
+        superanimal_name="superanimal_topviewmouse",
+        model_name="hrnet_w32",
+        detector_name="fasterrcnn_resnet50_fpn_v2",
+        video_adapt=True,  # Helps reduce jitter
+        videotype='.avi'
+    )
     
 
 if __name__ == "__main__":
