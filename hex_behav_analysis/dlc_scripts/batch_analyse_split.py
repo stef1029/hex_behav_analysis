@@ -3,7 +3,7 @@
 Split video analysis script for DeepLabCut.
 Analyses a specific portion of a video to enable parallel processing.
 """
-super_animal = True  # Set to True to use SuperAnimal, False for standard DeepLabCut
+super_animal = False  # Set to True to use SuperAnimal, False for standard DeepLabCut
 
 if super_animal:
     from deeplabcut import video_inference_superanimal
@@ -20,8 +20,8 @@ import glob
 
 # Configuration path
 if not super_animal:
-    # config = r'/cephfs2/srogers/DEEPLABCUT_models/LMDC_model_videos/LMDC-StefanRC-2025-03-11/config.yaml'
-    config = r'/cephfs2/srogers/DEEPLABCUT_models/2500601_Pitx2_ephys_model/project_folders/tetrodes-StefanRC-2025-06-01/config.yaml'
+    config = r'/cephfs2/srogers/DEEPLABCUT_models/LMDC_model_videos/models/LMDC-StefanRC-2025-03-11/config.yaml'
+    # config = r'/cephfs2/srogers/DEEPLABCUT_models/2500601_Pitx2_ephys_model/project_folders/tetrodes-StefanRC-2025-06-01/config.yaml'
 
 if super_animal:
     def get_video_info(video_path):

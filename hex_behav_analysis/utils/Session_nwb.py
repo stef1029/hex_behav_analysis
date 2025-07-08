@@ -12,18 +12,20 @@ from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from hex_behav_analysis.utils.DetectTrials import DetectTrials
 
 class Session:
-    def __init__(self, session_dict, recalculate=False):
+    def __init__(self, session_dict, recalculate=False, dlc_model_name=None):
         """
         Initialize a Session object.
         
         Args:
             session_dict (dict): Dictionary containing session information.
             recalculate (bool): If True, force recalculation of trials even if analysis pickle exists.
+            dlc_model_name (str): Specific DLC model name to use. If None, uses default behaviour.
         """
         try:
             self.session_dict = session_dict
             self.session_directory = Path(self.session_dict.get('directory'))
             self.session_ID = self.session_dict.get('session_id')
+            self.dlc_model_name = dlc_model_name  # Store the model name
             print(f"Loading session {self.session_ID}...")
             
             self.portable = self.session_dict['portable']
@@ -82,12 +84,21 @@ class Session:
 
     def _load_analysis_pickle(self):
         """Helper to load analysis data from the pickle file.
-           Returns an empty dict if the file does not exist or is empty."""
+        Returns an empty dict if the file does not exist or is empty."""
         if not self.analysis_pickle_path.exists() or self.analysis_pickle_path.stat().st_size == 0:
             return {}
         with open(self.analysis_pickle_path, 'rb') as f:
             try:
-                return pickle.load(f)
+                data = pickle.load(f)
+                # Check if model name matches
+                if self.dlc_model_name and data.get("dlc_model_name") != self.dlc_model_name:
+                    print(f"Model mismatch in pickle: {data.get('dlc_model_name')} vs {self.dlc_model_name}. Will recalculate video data.")
+                    # Remove video data to force recalculation
+                    if "video_data" in data:
+                        del data["video_data"]
+                    if "video_timestamps" in data:
+                        del data["video_timestamps"]
+                return data
             except EOFError:
                 return {}
 
@@ -138,8 +149,8 @@ class Session:
         analysis_dict = self._load_analysis_pickle()
         analysis_dict["video_data"] = video_data
         analysis_dict["video_timestamps"] = ts
+        analysis_dict["dlc_model_name"] = self.dlc_model_name  # Store model name
         self._save_analysis_pickle(analysis_dict)
-        # print("Video data saved to analysis pickle.")
 
     def load_video_data_from_analysis(self):
         """
@@ -196,11 +207,61 @@ class Session:
                 trial["turn_data"] = None
 
 
-    def find_angles(self, trial, buffer = 1):
+    def find_angles(self, trial, buffer=1):
         """
-        returns: for each trial, the cue angle from mouse heading
+        Calculate angles for each trial with corrections for ear detection issues.
+        
+        This function computes the mouse's head bearing (direction it's facing) and the angle
+        to the cued port relative to that bearing. It uses three different methods depending
+        on the quality of the ear tracking:
+        
+        1. **Ear-based calculation** (default):
+        - Uses positions of left and right ears to determine head orientation
+        - Head direction is perpendicular to the line connecting the ears
+        - Validates against spine data if available to detect flipped ears
+        
+        2. **Spine-based calculation** (when ears too close):
+        - Triggered when ear distance < 50 pixels (likely both on same ear)
+        - Fits a line through spine points (spine_1 to spine_4)
+        - Uses line angle as body/head direction
+        
+        3. **Fallback ear calculation** (when spine data unavailable):
+        - Uses ear positions even if too close together
+        - May be inaccurate but prevents complete failure
+        
+        Coordinate system notes:
+        - Video coordinates have y increasing downward (flipped from standard)
+        - All atan2 calls use -y to account for this
+        - Angles are in degrees, with 0° = rightward, 90° = upward
+        
+        Parameters:
+        -----------
+        trial : dict
+            Trial data containing DLC coordinates with body part positions
+            Must contain 'DLC_data' DataFrame with columns for each body part
+        buffer : int, default=1
+            Number of frames to average over for position calculations
+            Helps reduce noise in tracking data
+            
+        Returns:
+        --------
+        dict or None
+            Returns None if insufficient data
+            Otherwise returns dictionary containing:
+            - bearing: float, mouse head angle in degrees (0-360)
+            - midpoint: tuple, (x,y) position representing mouse head location
+            - left_ear_likelihood: float, average DLC confidence for left ear
+            - right_ear_likelihood: float, average DLC confidence for right ear
+            - cue_presentation_angle: float, angle to cued port (-180 to 180)
+            - port_touched_angle: float or None, angle to touched port if applicable
+            - angle_correction_method: str, one of:
+                - "none": standard ear-based calculation
+                - "ear_flip_corrected": ears detected as flipped and corrected
+                - "spine_based": used spine due to ears too close
+                - "ears_too_close_no_spine": ears too close but no spine data
+            - ear_distance: float, pixel distance between detected ear positions
+            - spine_data_available: bool, whether spine tracking data was found
         """
-        #  ----------------  GET MOUSE HEADING FROM DLC COORDS: --------------------
         # --- Guard against empty or too-short DLC data ---
         if trial["DLC_data"] is None or len(trial["DLC_data"]) < buffer:
             return None
@@ -239,37 +300,174 @@ class Session:
         )
         avg_right_ear_likelihood = sum(right_ear_likelihoods) / len(right_ear_likelihoods)
 
-        vector_x = average_right_ear[0] - average_left_ear[0]
-        vector_y = average_right_ear[1] - average_left_ear[1]
-
-        # Calculate the angle relative to the positive x-axis
-        theta_rad = math.atan2(-vector_y, vector_x)
-        theta_deg = math.degrees(theta_rad)
-        theta_deg = (theta_deg + 90) % 360
-
-        # Calculating the midpoint
-        midpoint_x = (average_left_ear[0] + average_right_ear[0]) / 2
-        midpoint_y = (average_left_ear[1] + average_right_ear[1]) / 2
-
-        # Midpoint coordinates
-        midpoint = (midpoint_x, midpoint_y)
+        # --- Check distance between ears ---
+        ear_distance = math.sqrt(
+            (average_right_ear[0] - average_left_ear[0])**2 + 
+            (average_right_ear[1] - average_left_ear[1])**2
+        )
         
+        minimum_ear_distance = 50  # Minimum distance threshold
+        angle_correction_method = "none"  # Track correction method used
+        
+        # --- Get spine data for validation/correction ---
+        spine_positions = []
+        spine_available = True
+        
+        try:
+            for spine_idx in range(1, 5):  # spine_1 to spine_4
+                spine_name = f"spine_{spine_idx}"  # With underscore
+                if spine_name in trial["DLC_data"].columns.levels[0]:
+                    spine_x = sum(trial["DLC_data"][spine_name]["x"].iloc[i] for i in range(buffer)) / buffer
+                    spine_y = sum(trial["DLC_data"][spine_name]["y"].iloc[i] for i in range(buffer)) / buffer
+                    spine_positions.append((spine_x, spine_y))
+                else:
+                    spine_available = False
+                    break
+        except:
+            spine_available = False
+        
+        # --- Calculate head bearing ---
+        if ear_distance >= minimum_ear_distance:
+            # Use ear-based calculation
+            # Vector from left ear to right ear
+            ear_vector_x = average_right_ear[0] - average_left_ear[0]
+            ear_vector_y = average_right_ear[1] - average_left_ear[1]
+            
+            # The head direction is perpendicular to the ear vector
+            # Rotate ear vector by 90 degrees to get forward direction
+            # For a 90 degree rotation: (x,y) -> (-y,x) or (y,-x) depending on direction
+            # Since y is flipped in video coords, we want the mouse to face "up" the screen when heading is 0
+            head_vector_x = -ear_vector_y  # Perpendicular to ear line
+            head_vector_y = ear_vector_x
+            
+            # Calculate angle using atan2 with -y for video coordinates
+            theta_rad = math.atan2(-head_vector_y, head_vector_x)
+            theta_deg = math.degrees(theta_rad)
+            theta_deg = theta_deg % 360
+            
+            # Validate with spine data if available
+            if spine_available and len(spine_positions) >= 2:
+                # Find best fit line through spine points for validation
+                spine_x = [pos[0] for pos in spine_positions]
+                spine_y = [pos[1] for pos in spine_positions]
+                
+                try:
+                    coefficients = np.polyfit(spine_x, spine_y, 1)
+                    slope = coefficients[0]
+                    
+                    # Determine spine angle from best fit line
+                    if spine_positions[0][0] > spine_positions[-1][0]:  # spine_1.x > spine_4.x
+                        spine_angle_rad = math.atan(-slope)
+                    else:
+                        spine_angle_rad = math.atan(-slope) + math.pi
+                        
+                    spine_angle_deg = math.degrees(spine_angle_rad) % 360
+                    
+                except:
+                    # Fallback for vertical lines or polyfit failures
+                    if abs(spine_x[0] - spine_x[-1]) < 0.1:  # Nearly vertical
+                        if spine_positions[0][1] < spine_positions[-1][1]:  # head is up
+                            spine_angle_deg = 90
+                        else:
+                            spine_angle_deg = 270
+                    else:
+                        # Simple vector calculation
+                        spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
+                        spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
+                        spine_angle_rad = math.atan2(-spine_vector_y, spine_vector_x)
+                        spine_angle_deg = math.degrees(spine_angle_rad) % 360
+                
+                # Check angle difference
+                angle_diff = abs(theta_deg - spine_angle_deg)
+                if angle_diff > 180:
+                    angle_diff = 360 - angle_diff
+                
+                # If angles differ by more than 90 degrees, ears are likely flipped
+                if angle_diff > 90:
+                    # Rotate by 180 degrees
+                    theta_deg = (theta_deg + 180) % 360
+                    angle_correction_method = "ear_flip_corrected"
+            
+        elif ear_distance < minimum_ear_distance and spine_available and len(spine_positions) >= 2:
+            # Ears too close - use spine-based calculation
+            angle_correction_method = "spine_based"
+            
+            # Find best fit line through all spine points
+            spine_x = [pos[0] for pos in spine_positions]
+            spine_y = [pos[1] for pos in spine_positions]
+            
+            # Use numpy polyfit to find line of best fit (degree 1 = linear)
+            # Returns coefficients [slope, intercept] for y = slope*x + intercept
+            try:
+                coefficients = np.polyfit(spine_x, spine_y, 1)
+                slope = coefficients[0]
+                
+                # The angle of the line is atan(slope), but we need to determine direction
+                # Check which end is the head by comparing spine_1 and spine_4 positions
+                if spine_positions[0][0] > spine_positions[-1][0]:  # spine_1.x > spine_4.x
+                    # Head is to the right of tail
+                    theta_rad = math.atan(-slope)  # Negative because of flipped y
+                else:
+                    # Head is to the left of tail - rotate by 180°
+                    theta_rad = math.atan(-slope) + math.pi
+                    
+            except:
+                # Fallback if polyfit fails (e.g., vertical line)
+                # Check if line is nearly vertical
+                if abs(spine_x[0] - spine_x[-1]) < 0.1:  # Nearly vertical
+                    if spine_positions[0][1] < spine_positions[-1][1]:  # spine_1.y < spine_4.y (head is up)
+                        theta_rad = math.pi / 2  # 90 degrees
+                    else:
+                        theta_rad = -math.pi / 2  # 270 degrees
+                else:
+                    # Use simple vector calculation as fallback
+                    spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
+                    spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
+                    theta_rad = math.atan2(-spine_vector_y, spine_vector_x)
+            
+            theta_deg = math.degrees(theta_rad)
+            theta_deg = theta_deg % 360
+            
+        else:
+            # Fallback to ear-based calculation without validation
+            if ear_distance < minimum_ear_distance:
+                angle_correction_method = "ears_too_close_no_spine"
+            
+            # Same calculation as above
+            ear_vector_x = average_right_ear[0] - average_left_ear[0]
+            ear_vector_y = average_right_ear[1] - average_left_ear[1]
+            
+            head_vector_x = -ear_vector_y
+            head_vector_y = ear_vector_x
+            
+            theta_rad = math.atan2(-head_vector_y, head_vector_x)
+            theta_deg = math.degrees(theta_rad)
+            theta_deg = theta_deg % 360
+        
+        # --- Calculate midpoint ---
+        if angle_correction_method == "spine_based" and spine_available and len(spine_positions) >= 1:
+            # Use spine_1 position as reference point when using spine-based angle
+            midpoint_x = spine_positions[0][0]
+            midpoint_y = spine_positions[0][1]
+        else:
+            # Use ear midpoint
+            midpoint_x = (average_left_ear[0] + average_right_ear[0]) / 2
+            midpoint_y = (average_left_ear[1] + average_right_ear[1]) / 2
+        
+        # Apply offset to midpoint in the direction of heading
         theta_rad = math.radians(theta_deg)
         eyes_offset = 40
-        # Calculate the directional offsets using cosine and sine
-        offset_x = eyes_offset * math.cos(theta_rad)  # Offset along x based on heading
-        offset_y = eyes_offset * math.sin(theta_rad)  # Offset along y based on heading
-
-        # New midpoint coordinates after applying the offset
+        offset_x = eyes_offset * math.cos(theta_rad)
+        offset_y = eyes_offset * math.sin(theta_rad)
+        
+        # Note: y offset is subtracted because sin is already accounting for flipped coords
         new_midpoint_x = midpoint_x + offset_x
-        new_midpoint_y = midpoint_y - offset_y  # Subtract because y-coordinates increase downwards in image coordinates
-
-        # New midpoint
+        new_midpoint_y = midpoint_y - offset_y
+        
         midpoint = (new_midpoint_x, new_midpoint_y)
-
+        
         # -------- GET CUE PRESENTATION ANGLE FROM MOUSE HEADING: ------------------------
-
-        # port_angles = [64, 124, 184, 244, 304, 364] # calibrated 14/2/24 with function at end of session class
+        
         if self.rig_id == 1:
             self.port_angles = [64, 124, 184, 244, 304, 364] 
         elif self.rig_id == 2:
@@ -277,45 +475,34 @@ class Session:
         else:
             raise ValueError(f"Invalid rig ID: {self.rig_id}")
 
-        # if the center is frame height/2, width/2, and the angle is the value in port_angles,
-        # then the port coordinates are
         frame_height = 1080
         frame_width = 1280
         center_x = frame_width / 2
         center_y = frame_height / 2
-        distance = (frame_height / 2) * 0.9         # offset from center to find coords
+        distance = (frame_height / 2) * 0.9
 
         self.port_coordinates = []
         for angle_deg in self.port_angles:
-            # Convert angle from degrees to radians
             angle_rad = np.deg2rad(angle_deg)
             
-            # Calculate coordinates
             x = int(center_x + distance * np.cos(angle_rad))
-            y = int(center_y - distance * np.sin(angle_rad))  # Subtracting to invert y-axis direction
+            y = int(center_y - distance * np.sin(angle_rad))
             
-            # Append tuple of (x, y) to the list of coordinates
             self.port_coordinates.append((x, y))
 
         self.relative_angles = []
-        # Convert mouse heading to radians for calculation
         mouse_heading_rad = np.deg2rad(theta_deg)
 
         for port_x, port_y in self.port_coordinates:
-            # Calculate vector from midpoint to the port
             vector_x = port_x - midpoint[0]
             vector_y = port_y - midpoint[1]
 
-            # Calculate the angle from the x-axis to this vector
             port_angle_rad = math.atan2(-vector_y, vector_x)
 
-            # Calculate the relative angle
             relative_angle_rad = port_angle_rad - mouse_heading_rad
 
-            # Convert relative angle to degrees and make sure it is within [0, 360)
             relative_angle_deg = math.degrees(relative_angle_rad) % 360
 
-            # Append calculated relative angle to list
             self.relative_angles.append(relative_angle_deg)
 
         correct_port = trial["correct_port"]
@@ -330,7 +517,7 @@ class Session:
             
             if port_touched != None:
                 port_touched_angle = self.relative_angles[int(port_touched) - 1] % 360
-                # print(port_touched_angle)
+                
         if cue_presentation_angle > 180:
             cue_presentation_angle -= 360
         elif cue_presentation_angle <= -180:
@@ -342,7 +529,6 @@ class Session:
             elif port_touched_angle <= -180:
                 port_touched_angle += 360
 
-
         # -------- RETURN DATA: ------------------------
         angle_data = {
             "bearing": theta_deg,
@@ -350,11 +536,13 @@ class Session:
             "left_ear_likelihood": avg_left_ear_likelihood,
             "right_ear_likelihood": avg_right_ear_likelihood,
             "cue_presentation_angle": cue_presentation_angle,
-            "port_touched_angle": port_touched_angle
+            "port_touched_angle": port_touched_angle,
+            "angle_correction_method": angle_correction_method,
+            "ear_distance": ear_distance,
+            "spine_data_available": spine_available
         }
 
         return angle_data
-
 
         
     def draw_LEDs(self, output_path, start=0, end=None):
@@ -459,7 +647,16 @@ class Session:
         # Load the NWB file:
         with NWBHDF5IO(str(self.nwb_file_path), 'r') as io:
             nwbfile = io.read()
-            DLC_coords_present = 'behaviour_coords' in nwbfile.processing
+            
+            # Determine which processing module to look for
+            if self.dlc_model_name:
+                coords_module_name = f'behaviour_coords_{self.dlc_model_name}'
+            else:
+                coords_module_name = 'behaviour_coords'
+            
+            DLC_coords_present = coords_module_name in nwbfile.processing
+            self.coords_module_name = coords_module_name  # Store for use in other methods
+            
             self.last_timestamp = nwbfile.acquisition['scales'].timestamps[-1]
             session_metadata = nwbfile.experiment_description
             
@@ -472,7 +669,6 @@ class Session:
                 self.session_video_object = nwbfile.acquisition['behaviour_video']
                 self.session_video = self.session_directory / Path(self.session_video_object.external_file[0])
                 self.video_timestamps = self.session_video_object.timestamps[:]
-                # print(f"Loaded video path: {self.session_video}")
             else:
                 print("WARNING: No 'behaviour_video' found in NWB acquisition")
                 self.session_video = None
@@ -481,6 +677,21 @@ class Session:
 
         # check if dlc coords are in nwb file already:
         if not DLC_coords_present:
+            # Need to find the correct CSV file based on model name
+            if self.dlc_model_name:
+                # Find CSV file with specific model name
+                csv_files = list(self.session_directory.glob("*.csv"))
+                self.DLC_coords_path = None
+                for csv_file in csv_files:
+                    if self.dlc_model_name in csv_file.name and 'DLC' in csv_file.name:
+                        self.DLC_coords_path = csv_file
+                        break
+                if not self.DLC_coords_path:
+                    raise FileNotFoundError(f"No DLC CSV file found for model {self.dlc_model_name}")
+            else:
+                # Use default from session_dict
+                self.DLC_coords_path = Path(self.session_dict.get('processed_data', {}).get('DLC', {}).get('coords_csv'))
+            
             self.DLC_coords = pd.read_csv(self.DLC_coords_path, header=[1, 2], index_col=0)
             # if the behaviour coordinates data hasn't been added yet, add the data to the nwb file:
             self.add_DLC_coords_to_nwb()
@@ -506,9 +717,9 @@ class Session:
                 print(f"Number of video timestamps: {num_timestamps}")
                 print(f"Number of DLC frames (original): {len(self.DLC_coords)}")
 
-                # Create a new processing module for the DLC coords:
-                behaviour_module = ProcessingModule(name='behaviour_coords', 
-                                                description='DLC coordinates for behaviour')
+                # Create a new processing module for the DLC coords with model-specific name:
+                behaviour_module = ProcessingModule(name=self.coords_module_name, 
+                                                description=f'DLC coordinates for behaviour{" - " + self.dlc_model_name if self.dlc_model_name else ""}')
                 nwbfile.add_processing_module(behaviour_module)
 
                 for body_part in self.DLC_coords.columns.levels[0]:
@@ -632,9 +843,9 @@ class Session:
                         video_frames.append(i)
                     
                     if len(video_frames) != 0:
-                        if 'behaviour_coords' in nwbfile.processing:
-                            behaviour_module = nwbfile.processing['behaviour_coords']
-
+                        if self.coords_module_name in nwbfile.processing:  # Use stored module name
+                            behaviour_module = nwbfile.processing[self.coords_module_name]
+                            
                             # Initialize an empty dictionary to store DLC data for the trial
                             trial_DLC_data = {}
 

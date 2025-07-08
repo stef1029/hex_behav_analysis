@@ -25,7 +25,8 @@ class Cohort_folder:
         ignore_tests=True,
         use_existing_cohort_info=False,
         plot=False,
-        ephys_data=False
+        ephys_data=False,
+        dlc_model_name=None  # Add this parameter
     ):
         """
         Initialises cohort folder structure and organises data for easy access.
@@ -38,6 +39,7 @@ class Cohort_folder:
         :param use_existing_cohort_info: If True and cohort_info.json exists, load from it and skip scanning
         :param plot: Whether to produce a cohort summary plot (if relevant)
         :param ephys_data: Whether to scan for and organise ephys files within group folders
+        :param dlc_model_name: Specific DLC model name to look for (e.g. 'DLC_Resnet50_tetrodesJun1shuffle1_snapshot_080'). If None, uses first found.
         """
         print("Loading cohort info...")
         self.cohort_directory = Path(cohort_directory)
@@ -47,6 +49,7 @@ class Cohort_folder:
         self.ignore_tests = ignore_tests
         self.plot = plot
         self.ephys_data = ephys_data
+        self.dlc_model_name = dlc_model_name
 
         if not self.cohort_directory.exists():
             raise Exception(f"Folder {self.cohort_directory} does not exist")
@@ -425,23 +428,6 @@ class Cohort_folder:
                 except Exception as e:
                     # Check if session is in the ignore list first
                     ignore = [
-                        "240807_163610_wtjp254-4b",  # forgot to turn scales on
-                        "240725_110604_wtjx300-6a",  # no trials
-                        "240720_115745_wtjx300-6a",  # no trials
-                        "240731_120318_wtjx300-6a",
-                        "240720_114019_wtjx300-6a",
-                        "240720_120336_wtjx300-6a",
-                        "240720_120413_wtjx300-6a",
-                        "240725_110604_wtjx300-6b",  # no trials
-                        "240731_120318_wtjx300-6b",
-                        "240720_114019_wtjx300-6b",
-                        "240720_120336_wtjx300-6b",
-                        "240720_120413_wtjx300-6b",
-                        "240719_150822_wtjx261-2a",
-                        "240716_141151_wtjx261-2a",
-                        "240719_150822_wtjx307-6b",
-                        # Add the problematic session ID here if known
-                        "250401_170043_mtao106-3e"
                     ]
                     if session in ignore:
                         continue
@@ -823,7 +809,7 @@ class Cohort_folder:
                 processed_data["sendkey_metadata"] = str(self.find_file(session_folder, 'behaviour_data'))
                 check_list.append(processed_data["sendkey_metadata"])
                 processed_data["NWB_file"] = str(self.find_file(session_folder, '.nwb'))
-                processed_data["DLC"] = self.find_DLC_files(session_folder)
+                processed_data["DLC"] = self.find_DLC_files(session_folder)  # Pass the model name via self
 
                 if self.OEAB_legacy:
                     processed_data["processed_DAQ_data"] = str(self.find_file(session_folder, 'processed_DAQ_data'))
@@ -868,39 +854,75 @@ class Cohort_folder:
         
         DLC_files["labelled_video"] = str(labelled_video) if labelled_video else "None"
         
-        # Find coordinates CSV - look for CSV files with DLC_Resnet50 pattern (case-insensitive)
+        # Find coordinates CSV - look for CSV files with DLC pattern
         coords_csv = None
         for csv_file in session_path.glob("*.csv"):
-            if (csv_file.is_file() and 
-                'dlc_resnet50' in csv_file.name.lower() and
-                not is_split_file(csv_file.name)):
-                coords_csv = csv_file
-                break
+            if csv_file.is_file() and not is_split_file(csv_file.name):
+                # If specific model name requested, check for it
+                if self.dlc_model_name:
+                    if self.dlc_model_name in csv_file.name:
+                        coords_csv = csv_file
+                        break
+                else:
+                    # Original behaviour - any DLC file
+                    if 'dlc_resnet50' in csv_file.name.lower():
+                        coords_csv = csv_file
+                        break
         
         DLC_files["coords_csv"] = str(coords_csv) if coords_csv else "None"
         
-        # Find H5 files with DLC_Resnet50 pattern (case-insensitive)
+        # Find H5 files with DLC pattern
         coords_h5 = None
         for h5_file in session_path.glob("*.h5"):
-            if (h5_file.is_file() and 
-                'dlc_resnet50' in h5_file.name.lower() and
-                not is_split_file(h5_file.name)):
-                coords_h5 = h5_file
-                break
+            if h5_file.is_file() and not is_split_file(h5_file.name):
+                # If specific model name requested, check for it
+                if self.dlc_model_name:
+                    if self.dlc_model_name in h5_file.name:
+                        coords_h5 = h5_file
+                        break
+                else:
+                    # Original behaviour - any DLC file
+                    if 'dlc_resnet50' in h5_file.name.lower():
+                        coords_h5 = h5_file
+                        break
         
         DLC_files["coords_h5"] = str(coords_h5) if coords_h5 else "None"
         
-        # Find pickle metadata files with DLC_Resnet50 pattern (case-insensitive)
+        # Find pickle metadata files with DLC pattern
         meta_pickle = None
         for pickle_file in session_path.glob("*.pickle"):
             if (pickle_file.is_file() and 
-                'dlc_resnet50' in pickle_file.name.lower() and 
                 '_meta' in pickle_file.name.lower() and
                 not is_split_file(pickle_file.name)):
-                meta_pickle = pickle_file
-                break
+                # If specific model name requested, check for it
+                if self.dlc_model_name:
+                    if self.dlc_model_name in pickle_file.name:
+                        meta_pickle = pickle_file
+                        break
+                else:
+                    # Original behaviour - any DLC file
+                    if 'dlc_resnet50' in pickle_file.name.lower():
+                        meta_pickle = pickle_file
+                        break
         
         DLC_files["meta_pickle"] = str(meta_pickle) if meta_pickle else "None"
+        
+        # Store the model name that was found (if any)
+        if self.dlc_model_name:
+            DLC_files["model_name"] = self.dlc_model_name
+        else:
+            # Extract model name from found files if possible
+            model_name = None
+            for file_type in ["coords_csv", "coords_h5", "meta_pickle"]:
+                if DLC_files[file_type] != "None":
+                    filename = Path(DLC_files[file_type]).name
+                    # Extract model name pattern (DLC_...snapshot_XXX)
+                    import re
+                    match = re.search(r'(DLC_[^_]+_[^_]+shuffle\d+_snapshot_\d+)', filename)
+                    if match:
+                        model_name = match.group(1)
+                        break
+            DLC_files["model_name"] = model_name if model_name else "None"
         
         return DLC_files
 
@@ -962,18 +984,9 @@ def main():
         portable_data=True,
         use_existing_cohort_info=True,
         plot=True,
-        ephys_data=True
+        ephys_data=True,
+        dlc_model_name="DLC_Resnet50_tetrodesJun1shuffle1_snapshot_080"  # Example of specifying model
     )
-
-    # Example of accessing ephys data for a specific session
-    # session_info = cohort.get_session("240311_183300")
-    # if session_info and "ephys_data" in session_info:
-    #     ephys_files = session_info["ephys_data"]
-    #     print(f"Ephys files found: {ephys_files['total_files']}")
-    #     print(f"Files by extension:")
-    #     for ext, file_path in ephys_files.items():
-    #         if ext not in ['total_files', 'has_ephys_data']:
-    #             print(f"  .{ext}: {file_path}")
 
 
 if __name__ == "__main__":

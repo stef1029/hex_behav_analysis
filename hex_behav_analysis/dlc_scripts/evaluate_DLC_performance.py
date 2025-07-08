@@ -2,7 +2,7 @@
 DeepLabCut Performance Evaluation Script
 
 This script evaluates DeepLabCut analysis performance by generating annotated images
-showing ear positions, head angles, LED positions, and calculated angles at cue onset.
+showing all tracked body parts, head angles, LED positions, and calculated angles at cue onset.
 """
 
 import cv2 as cv
@@ -24,7 +24,7 @@ def evaluate_deeplabcut_performance(
     
     This function processes each trial in the session, finds the frame at cue onset,
     and creates annotated images showing:
-    - Ear positions with likelihood indicators
+    - All tracked body parts with likelihood indicators
     - Calculated head angle line
     - LED position
     - Angle values and likelihoods as text overlays
@@ -104,7 +104,7 @@ def evaluate_deeplabcut_performance(
                     
                 # Create annotated image using existing session calculations
                 annotated_frame = _create_annotated_image(
-                    video_frame, trial, session
+                    video_frame, trial, session, cue_onset_frame
                 )
                 
                 # Save annotated image
@@ -297,13 +297,41 @@ def _load_video_frame(session, frame_number: int) -> Optional[np.ndarray]:
     return None
 
 
+def _get_body_part_colours() -> Dict[str, Tuple[int, int, int]]:
+    """
+    Define distinct colours for each body part.
+    
+    Returns:
+    --------
+    Dict[str, Tuple[int, int, int]]
+        Dictionary mapping body part names to BGR colour tuples
+    """
+    return {
+        'left_ear': (0, 255, 0),        # Green
+        'right_ear': (255, 0, 0),        # Blue
+        'nose': (0, 255, 255),           # Yellow
+        'head': (255, 0, 255),           # Magenta
+        'base_neck': (255, 128, 0),      # Orange
+        'body': (128, 0, 255),           # Purple
+        'tail_base': (0, 128, 255),      # Light Blue
+        'tail_mid': (255, 128, 128),     # Pink
+        'tail_end': (128, 255, 128),     # Light Green
+        'spine1': (255, 200, 0),         # Gold
+        'spine2': (200, 255, 0),         # Lime
+        'spine3': (0, 200, 255),         # Cyan
+        'spine4': (255, 0, 200),         # Hot Pink
+        # Add more body parts and colours as needed
+    }
+
+
 def _create_annotated_image(
     frame: np.ndarray, 
     trial: Dict, 
-    session
+    session,
+    cue_onset_frame: int
 ) -> np.ndarray:
     """
-    Create annotated image with ear positions, head angle, and text overlays.
+    Create annotated image with all body parts, head angle, and text overlays.
     Uses existing session calculations to avoid recalculation.
     
     Parameters:
@@ -314,6 +342,8 @@ def _create_annotated_image(
         Trial dictionary containing turn_data with pre-calculated values
     session : Session object
         Session object containing port coordinates and other calculated values
+    cue_onset_frame : int
+        Frame number at cue onset
         
     Returns:
     --------
@@ -323,40 +353,57 @@ def _create_annotated_image(
     # Create a copy of the frame for annotation
     annotated_frame = frame.copy()
     
-    # Define colours (BGR format)
-    ear_colour = (0, 255, 0)  # Green for ears
-    head_line_colour = (255, 0, 0)  # Blue for head angle line
+    # Define colours
+    head_line_colour = (255, 255, 255)  # White for head angle line
     led_colour = (0, 255, 255)  # Yellow for LED
     text_colour = (255, 255, 255)  # White for text
     success_colour = (0, 255, 0)  # Green for successful trials
     fail_colour = (0, 0, 255)  # Red for failed trials
+    corrected_angle_colour = (255, 165, 0)  # Orange for corrected angles
+    
+    # Get body part colours
+    body_part_colours = _get_body_part_colours()
+    
+    # Get all body part positions and likelihoods at cue onset
+    all_body_parts = _get_all_body_parts_at_frame(trial, cue_onset_frame)
+    
+    if all_body_parts is not None:
+        # Draw all body parts
+        for body_part, data in all_body_parts.items():
+            if body_part in body_part_colours:
+                colour = body_part_colours[body_part]
+            else:
+                # Default colour for unlisted body parts
+                colour = (128, 128, 128)  # Grey
+            
+            # Draw body part
+            position = (int(data['x']), int(data['y']))
+            cv.circle(annotated_frame, position, 8, colour, -1)
+            
+            # Draw outline if likelihood is low
+            if data['likelihood'] < 0.6:
+                cv.circle(annotated_frame, position, 10, (0, 0, 0), 2)
     
     # Get pre-calculated data from turn_data
     turn_data = trial['turn_data']
     head_midpoint = turn_data['midpoint']
     bearing = turn_data['bearing']
     cue_presentation_angle = turn_data['cue_presentation_angle']
-    left_ear_likelihood = turn_data['left_ear_likelihood']
-    right_ear_likelihood = turn_data['right_ear_likelihood']
     
-    # Calculate ear positions from DLC data at cue onset
-    cue_onset_frame = _find_cue_onset_frame(trial)
-    if cue_onset_frame is not None:
-        ear_positions = _get_ear_positions_at_frame(trial, cue_onset_frame)
-        if ear_positions is not None:
-            # Draw ear positions
-            left_ear_pos = (int(ear_positions['left_ear'][0]), int(ear_positions['left_ear'][1]))
-            right_ear_pos = (int(ear_positions['right_ear'][0]), int(ear_positions['right_ear'][1]))
-            
-            cv.circle(annotated_frame, left_ear_pos, 8, ear_colour, -1)
-            cv.circle(annotated_frame, right_ear_pos, 8, ear_colour, -1)
+    # Check if angle was corrected
+    angle_correction_method = turn_data.get('angle_correction_method', 'none')
+    angle_was_corrected = angle_correction_method != 'none'
+    
+    # Use different colour for head line if angle was corrected
+    if angle_was_corrected:
+        head_line_colour = corrected_angle_colour
     
     # Draw head angle line using pre-calculated bearing and midpoint
     head_midpoint_px = (int(head_midpoint[0]), int(head_midpoint[1]))
     
     # Calculate nose position using the bearing from turn_data
     nose_length = 60  # Length of the head direction line
-    bearing_rad = math.radians(bearing)  # Convert to standard angle (subtract 90 as per your calculation)
+    bearing_rad = math.radians(bearing)
     nose_x = int(head_midpoint[0] + nose_length * math.cos(bearing_rad))
     nose_y = int(head_midpoint[1] - nose_length * math.sin(bearing_rad))
     nose_position = (nose_x, nose_y)
@@ -386,23 +433,27 @@ def _create_annotated_image(
     outcome_pos = (frame_width - 150, 40)
     cv.putText(annotated_frame, outcome_text, outcome_pos, cv.FONT_HERSHEY_SIMPLEX, 0.8, outcome_colour, 2)
     
-    # Add text annotations using pre-calculated values
+    # Add text annotations including all body part likelihoods
     _add_text_annotations(
         annotated_frame, 
         trial,
         cue_presentation_angle,
         bearing,
-        left_ear_likelihood,
-        right_ear_likelihood,
-        text_colour
+        all_body_parts,
+        text_colour,
+        body_part_colours,
+        turn_data
     )
+    
+    # Add legend for body part colours
+    _add_body_part_legend(annotated_frame, body_part_colours, all_body_parts)
     
     return annotated_frame
 
 
-def _get_ear_positions_at_frame(trial: Dict, frame_number: int) -> Optional[Dict]:
+def _get_all_body_parts_at_frame(trial: Dict, frame_number: int) -> Optional[Dict]:
     """
-    Get ear positions at a specific frame from DLC data.
+    Get all body part positions and likelihoods at a specific frame from DLC data.
     
     Parameters:
     -----------
@@ -414,7 +465,7 @@ def _get_ear_positions_at_frame(trial: Dict, frame_number: int) -> Optional[Dict
     Returns:
     --------
     Optional[Dict]
-        Dictionary with ear positions, or None if not available
+        Dictionary with all body part positions and likelihoods, or None if not available
     """
     try:
         dlc_data = trial['DLC_data']
@@ -426,10 +477,28 @@ def _get_ear_positions_at_frame(trial: Dict, frame_number: int) -> Optional[Dict
         # Get DLC data at that index
         frame_data = dlc_data.iloc[frame_idx]
         
-        return {
-            'left_ear': (frame_data[('left_ear', 'x')], frame_data[('left_ear', 'y')]),
-            'right_ear': (frame_data[('right_ear', 'x')], frame_data[('right_ear', 'y')])
-        }
+        # Extract all body parts
+        body_parts = {}
+        
+        # Get unique body part names from the multi-index columns
+        if hasattr(dlc_data.columns, 'levels'):
+            body_part_names = dlc_data.columns.levels[0]
+        else:
+            # Handle case where columns might be structured differently
+            body_part_names = set([col[0] for col in dlc_data.columns if isinstance(col, tuple)])
+        
+        for body_part in body_part_names:
+            try:
+                body_parts[body_part] = {
+                    'x': frame_data[(body_part, 'x')],
+                    'y': frame_data[(body_part, 'y')],
+                    'likelihood': frame_data[(body_part, 'likelihood')]
+                }
+            except KeyError:
+                # Skip if this body part doesn't have all coordinates
+                continue
+        
+        return body_parts
         
     except (ValueError, IndexError, KeyError):
         return None
@@ -440,12 +509,13 @@ def _add_text_annotations(
     trial: Dict,
     cue_presentation_angle: float,
     bearing: float,
-    left_ear_likelihood: float,
-    right_ear_likelihood: float,
-    text_colour: Tuple[int, int, int]
+    all_body_parts: Optional[Dict],
+    text_colour: Tuple[int, int, int],
+    body_part_colours: Dict[str, Tuple[int, int, int]],
+    turn_data: Dict
 ) -> None:
     """
-    Add text annotations to the frame using pre-calculated values.
+    Add text annotations to the frame including all body part likelihoods and angle correction info.
     
     Parameters:
     -----------
@@ -457,50 +527,68 @@ def _add_text_annotations(
         Pre-calculated cue presentation angle
     bearing : float
         Pre-calculated head bearing
-    left_ear_likelihood : float
-        Pre-calculated left ear likelihood
-    right_ear_likelihood : float
-        Pre-calculated right ear likelihood
+    all_body_parts : Optional[Dict]
+        Dictionary of all body part positions and likelihoods
     text_colour : Tuple[int, int, int]
         Text colour in BGR format
+    body_part_colours : Dict[str, Tuple[int, int, int]]
+        Dictionary of body part colours
+    turn_data : Dict
+        Turn data containing angle correction information
     """
     font = cv.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.8
+    font_scale = 0.6
     thickness = 2
     
-    # Text content using pre-calculated values and trial information
-    angle_text = f"Cue Angle: {cue_presentation_angle:.1f}°"
-    left_likelihood_text = f"Left Ear: {left_ear_likelihood:.2f}"
-    right_likelihood_text = f"Right Ear: {right_ear_likelihood:.2f}"
-    head_angle_text = f"Head Bearing: {bearing:.1f}°"
+    # Get angle correction information
+    angle_correction_method = turn_data.get('angle_correction_method', 'none')
+    ear_distance = turn_data.get('ear_distance', 'N/A')
+    spine_data_available = turn_data.get('spine_data_available', False)
     
-    # Additional trial information
-    trial_num_text = f"Trial: {trial.get('trial_no', 'N/A')}"
-    correct_port_text = f"Port: {trial['correct_port']}"
-    phase_text = f"Phase: {trial.get('phase', 'N/A')}"
+    # Text content using pre-calculated values and trial information
+    texts = [
+        f"Trial: {trial.get('trial_no', 'N/A')}",
+        f"Port: {trial['correct_port']}",
+        f"Phase: {trial.get('phase', 'N/A')}",
+        f"Cue Angle: {cue_presentation_angle:.1f}°",
+        f"Head Bearing: {bearing:.1f}°",
+    ]
+    
+    # Add angle correction information
+    if angle_correction_method != 'none':
+        texts.append("")  # Empty line for spacing
+        texts.append("ANGLE CORRECTION APPLIED:")
+        
+        if angle_correction_method == 'ear_flip_corrected':
+            texts.append("  Method: Ear flip corrected")
+        elif angle_correction_method == 'spine_based':
+            texts.append("  Method: Spine-based calculation")
+        elif angle_correction_method == 'ears_too_close_no_spine':
+            texts.append("  Method: Ears too close (no spine)")
+        
+        if isinstance(ear_distance, (int, float)):
+            texts.append(f"  Ear distance: {ear_distance:.1f} pixels")
+        texts.append(f"  Spine data: {'Available' if spine_data_available else 'Not available'}")
+    
+    texts.extend([
+        "",  # Empty line for spacing
+        "Body Part Likelihoods:"
+    ])
+    
+    # Add body part likelihoods
+    if all_body_parts:
+        for body_part, data in sorted(all_body_parts.items()):
+            likelihood_text = f"{body_part}: {data['likelihood']:.3f}"
+            texts.append(likelihood_text)
     
     # Check if it's a catch trial
-    catch_text = "CATCH TRIAL" if trial.get('catch', False) else ""
+    if trial.get('catch', False):
+        texts.insert(0, "CATCH TRIAL")
     
     # Text positions (top-left corner with spacing)
     text_y_start = 30
-    text_y_spacing = 30
+    text_y_spacing = 25
     text_x = 20
-    
-    # Draw text with background rectangles for better visibility
-    texts = [
-        angle_text, 
-        head_angle_text, 
-        left_likelihood_text, 
-        right_likelihood_text,
-        trial_num_text,
-        correct_port_text,
-        phase_text
-    ]
-    
-    # Add catch trial text if applicable
-    if catch_text:
-        texts.append(catch_text)
     
     for i, text in enumerate(texts):
         if text:  # Only draw non-empty text
@@ -511,8 +599,24 @@ def _add_text_annotations(
                 text, font, font_scale, thickness
             )
             
-            # Special colour for catch trials
-            current_text_colour = (0, 165, 255) if text == catch_text else text_colour  # Orange for catch trials
+            # Determine text colour
+            if text == "CATCH TRIAL":
+                current_text_colour = (0, 165, 255)  # Orange for catch trials
+            elif text == "ANGLE CORRECTION APPLIED:":
+                current_text_colour = (255, 165, 0)  # Orange for correction header
+            elif text.startswith("  Method:") or text.startswith("  Ear distance:") or text.startswith("  Spine data:"):
+                current_text_colour = (255, 165, 0)  # Orange for correction details
+            elif text.startswith("Body Part Likelihoods"):
+                current_text_colour = text_colour
+            elif ":" in text and any(text.startswith(bp + ":") for bp in all_body_parts.keys() if all_body_parts):
+                # Use body part colour for likelihood text
+                body_part_name = text.split(":")[0]
+                if body_part_name in body_part_colours:
+                    current_text_colour = body_part_colours[body_part_name]
+                else:
+                    current_text_colour = (128, 128, 128)  # Grey for unlisted parts
+            else:
+                current_text_colour = text_colour
             
             # Draw background rectangle
             cv.rectangle(
@@ -535,9 +639,70 @@ def _add_text_annotations(
             )
 
 
+def _add_body_part_legend(
+    frame: np.ndarray, 
+    body_part_colours: Dict[str, Tuple[int, int, int]],
+    all_body_parts: Optional[Dict]
+) -> None:
+    """
+    Add a legend showing body part colours on the right side of the frame.
+    
+    Parameters:
+    -----------
+    frame : np.ndarray
+        Frame to add legend to
+    body_part_colours : Dict[str, Tuple[int, int, int]]
+        Dictionary of body part colours
+    all_body_parts : Optional[Dict]
+        Dictionary of detected body parts (to show only detected parts)
+    """
+    if not all_body_parts:
+        return
+    
+    font = cv.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    thickness = 1
+    
+    # Position legend on right side
+    frame_height, frame_width = frame.shape[:2]
+    legend_x = frame_width - 200
+    legend_y_start = 100
+    legend_y_spacing = 25
+    
+    # Draw legend title
+    cv.putText(
+        frame, 
+        "Body Parts", 
+        (legend_x, legend_y_start - 10), 
+        font, 
+        font_scale + 0.1, 
+        (255, 255, 255), 
+        thickness + 1
+    )
+    
+    # Draw each body part in legend (only if detected)
+    for i, (body_part, colour) in enumerate(sorted(body_part_colours.items())):
+        if body_part in all_body_parts:
+            y_pos = legend_y_start + (i * legend_y_spacing)
+            
+            # Draw colour circle
+            cv.circle(frame, (legend_x + 10, y_pos), 6, colour, -1)
+            
+            # Draw body part name
+            cv.putText(
+                frame, 
+                body_part, 
+                (legend_x + 25, y_pos + 5), 
+                font, 
+                font_scale, 
+                colour, 
+                thickness
+            )
+
+
 def _save_processing_summary(processed_trials: List[Dict], skipped_trials: List[Dict], output_path: Path) -> None:
     """
-    Save a summary of processed trials.
+    Save a summary of processed trials including angle correction statistics.
     
     Parameters:
     -----------
@@ -549,6 +714,17 @@ def _save_processing_summary(processed_trials: List[Dict], skipped_trials: List[
         Output directory path
     """
     summary_file = output_path / "processing_summary.txt"
+    
+    # Count angle corrections in processed trials
+    correction_counts = {
+        'none': 0,
+        'ear_flip_corrected': 0,
+        'spine_based': 0,
+        'ears_too_close_no_spine': 0
+    }
+    
+    # Assuming we have access to the session object to check corrections
+    # This would need to be passed in or stored with processed_trials
     
     with open(summary_file, 'w') as f:
         f.write("DeepLabCut Performance Evaluation Summary\n")
@@ -582,18 +758,21 @@ if __name__ == "__main__":
     # This example shows how to use the function
     # Replace with your actual session loading code
     
-    # from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
-    # from hex_behav_analysis.utils.Session_nwb import Session
-    # 
-    # cohort = Cohort_folder(r"/path/to/your/data", multi=True, OEAB_legacy=False)
-    # test_dir = cohort.get_session("your_session_id")
-    # session = Session(test_dir)
-    # 
-    # evaluate_deeplabcut_performance(
-    #     session=session,
-    #     output_directory="/path/to/output/folder",
-    #     likelihood_threshold=0.6
-    # )
+    from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
+    from hex_behav_analysis.utils.Session_nwb import Session
+    
+    model = "DLC_Resnet50_LMDCMar11shuffle1_snapshot_091"
+    cohort_dir = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/b1"
+    
+    cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=False, dlc_model_name=model)
+    test_dir = cohort.get_session("250514_163731_mtao102-3c")
+    session = Session(test_dir, dlc_model_name=model, recalculate=True)
+    
+    evaluate_deeplabcut_performance(
+        session=session,
+        output_directory="/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/111_dlc_evaluation",
+        likelihood_threshold=0
+    )
     
     print("DeepLabCut Performance Evaluation Script")
     print("Please call evaluate_deeplabcut_performance() with your session object")
