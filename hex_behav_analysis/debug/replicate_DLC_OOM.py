@@ -1,16 +1,20 @@
+"""
+DeepLabCut video analysis script with malloc_trim fix for memory issues.
+"""
+
 from deeplabcut import analyze_videos
-from deeplabcut import video_inference_superanimal
 import time
 import sys
 import gc
 import threading
 import ctypes
 
-# config = r'/cephfs2/srogers/New_analysis_pipeline/training_videos/DLC_Project_231212_193535_wtjx285-2a_raw_MP-SRC-2024-01-09/config.yaml'
-# config = r'/cephfs2/dwelch/6-choice_behaviour_DLC_model/config.yaml'
+# Configuration
+video_path = "/cephfs2/srogers/Behaviour/test/250522_114207_mtao106-3a_video.avi"
+gpu_id = 0
 config = r'/cephfs2/srogers/DEEPLABCUT_models/LMDC_model_videos/models/LMDC-StefanRC-2025-03-11/config.yaml'
 
-# Global flag for malloc_trim thread
+# Global flag for the malloc_trim thread
 stop_trim_thread = False
 
 
@@ -38,6 +42,10 @@ def malloc_trim_thread(interval=15):
 def analyse(video_path, gpu_id):
     """
     Analyse video with malloc_trim fix for memory issues.
+    
+    Args:
+        video_path: Path to video file
+        gpu_id: GPU device ID to use
     """
     global stop_trim_thread
     stop_trim_thread = False
@@ -46,33 +54,38 @@ def analyse(video_path, gpu_id):
     trim_thread = threading.Thread(target=malloc_trim_thread, args=(15,), daemon=True)
     trim_thread.start()
     
+    # Run analysis
     start_time = time.perf_counter()
-    print(f"Analyzing {str(video_path)}")
+    print(f"Analysing {str(video_path)}")
     print(f"Using GPU {gpu_id}")
     
     try:
-        analyze_videos(config=config,
-                      videos=[video_path], 
-                      videotype='.avi', 
-                      save_as_csv=True, 
-                      gputouse=gpu_id)
+        analyze_videos(
+            config=config,
+            videos=[video_path], 
+            videotype='.avi', 
+            save_as_csv=True, 
+            gputouse=gpu_id
+        )
         
-        # Calculate time taken
+        # Calculate duration
         elapsed_time = time.perf_counter() - start_time
-        minutes = round(elapsed_time / 60, 2)
-        seconds = round(elapsed_time % 60, 2)
+        minutes = int(elapsed_time // 60)
+        seconds = elapsed_time % 60
         
         print(f"Analysis of {str(video_path)} complete.")
-        print(f"Took: {minutes} minutes and {seconds} seconds")
+        print(f"Duration: {minutes} minutes and {seconds:.2f} seconds")
         
     finally:
         # Stop malloc_trim thread
         stop_trim_thread = True
 
-    
 
 if __name__ == "__main__":
-    video_path = sys.argv[1]
-    gpu_id = int(sys.argv[2])
-
+    # Optional: Use command line arguments
+    if len(sys.argv) > 1:
+        video_path = sys.argv[1]
+        if len(sys.argv) > 2:
+            gpu_id = int(sys.argv[2])
+    
     analyse(video_path, gpu_id)
