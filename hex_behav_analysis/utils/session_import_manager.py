@@ -2,9 +2,10 @@ from typing import List, Dict
 from hex_behav_analysis.utils.Session_nwb import Session
 
 class SessionManager:
-    def __init__(self, cohort):
+    def __init__(self, cohort, model=None):
         self._session_cache: Dict[str, List] = {}
         self.cohort = cohort
+        self.model = model
     
     def get_sessions(self, session_list: List[str], recalculate=False) -> List:
         """
@@ -26,7 +27,7 @@ class SessionManager:
         
         # If not cached, create the session objects
         print(f"Creating new session objects for {len(session_list)} sessions")
-        session_objects = [Session(self.cohort.get_session(session), recalculate) 
+        session_objects = [Session(self.cohort.get_session(session), recalculate, dlc_model_name=self.model) 
                          for session in session_list]
         
         # Cache the results

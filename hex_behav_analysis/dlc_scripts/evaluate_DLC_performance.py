@@ -761,12 +761,18 @@ if __name__ == "__main__":
     from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
     from hex_behav_analysis.utils.Session_nwb import Session
     
-    model = "DLC_Resnet50_LMDCMar11shuffle1_snapshot_091"
-    cohort_dir = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/b1"
+    # model = "DLC_Resnet50_LMDCMar11shuffle1_snapshot_091"
+    # cohort_dir = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/b1"
     
-    cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=False, dlc_model_name=model)
-    test_dir = cohort.get_session("250514_163731_mtao102-3c")
-    session = Session(test_dir, dlc_model_name=model, recalculate=True)
+    # cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=False, dlc_model_name=model)
+    # test_dir = cohort.get_session("250514_163731_mtao102-3c")
+    # session = Session(test_dir, dlc_model_name=model, recalculate=True)
+
+    cohort_dir = r"/cephfs2/srogers/Behaviour_code/2407_July_WT_cohort/Data"
+    
+    cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=True, dlc_model_name=None)
+    test_dir = cohort.get_session("240725_152746_wtjx261-2b")
+    session = Session(test_dir, dlc_model_name=None, recalculate=True)
     
     evaluate_deeplabcut_performance(
         session=session,
