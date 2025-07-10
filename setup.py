@@ -13,6 +13,7 @@ setup(
     "seaborn",
     "tqdm",
     "ipython",
+    "plotly"
     
 ]
 )

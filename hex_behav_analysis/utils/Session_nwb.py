@@ -472,6 +472,8 @@ class Session:
             self.port_angles = [64, 124, 184, 244, 304, 364] 
         elif self.rig_id == 2:
             self.port_angles = [240, 300, 360, 420, 480, 540]
+        elif self.rig_id == 3:
+            self.port_angles = [60, 120, 180, 240, 300, 360]
         else:
             raise ValueError(f"Invalid rig ID: {self.rig_id}")
 
@@ -550,6 +552,8 @@ class Session:
             port_angles = [64, 124, 184, 244, 304, 364]  # calibrated 14/2/24 with function at end of session class
         elif self.rig_id == 2:
             port_angles = [240, 300, 360, 420, 480, 540]
+        elif self.rig_id == 3:
+            self.port_angles = [60, 120, 180, 240, 300, 360]
         else:
             raise ValueError(f"Invalid rig ID: {self.rig_id}")
 
@@ -937,15 +941,15 @@ class Session:
         except ValueError:
             return False
         
-    def calibrate_port_angles(self):
+    def calibrate_port_angles(self, calibration_offset=0, output_file_path="test_output"):
         """
         Return a list of 6 angles, each representing the angle of a port from the platform centre.
+        calibration_offset is used to rotate the lines in the image around until they line up with the ports.
+        output_file_path is the path to save the image with the angles drawn on it.
         """
         # grab first frame from trial 1:
-        frame_no = self.trials[0]["video_frames"][0]
+        frame_no = self.trials[1]["video_frames"][0]
         port_angles = [0, 60, 120, 180, 240, 300]
-
-        calibration_offset = 240  # change this offset here to rotate the lines in the image around until they line up
 
         # open video and grab frame:
         cap = cv.VideoCapture(str(self.session_video))
@@ -972,8 +976,8 @@ class Session:
             cv.putText(frame, str(port_angles.index(angle)+1), (x2, y2), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
         # save frame to file
-        filename = "test_output/angle_frame.jpg"  # Ensure the directory exists
-        cv.imwrite(filename, frame)
+        filename = Path(output_file_path)  # Ensure the directory exists
+        cv.imwrite(filename/'angles.jpg', frame)
 
         cap.release()  # release the video capture object
         print([angle + calibration_offset for angle in port_angles])  # prints a list to be copied to the main function

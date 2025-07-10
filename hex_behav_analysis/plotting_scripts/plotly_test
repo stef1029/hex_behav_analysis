@@ -1,0 +1,204 @@
+import plotly.graph_objects as go
+import plotly.express as px
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+
+def test_plotly_interactive_plot(output_path=None, test_name="plotly_test"):
+    """
+    Test function to create an interactive Plotly plot with fake mouse data.
+    
+    Creates both HTML (interactive) and PNG (static) versions to test file opening.
+    
+    Parameters:
+    -----------
+    output_path : Path or str
+        Directory to save files (default: current directory)
+    test_name : str
+        Base name for saved files
+    """
+    
+    # Generate fake mouse data
+    np.random.seed(42)  # For reproducible results
+    
+    # Create fake angle bins (like your real data)
+    angles_deg = np.array([-165, -135, -105, -75, -45, -15, 15, 45, 75, 105, 135, 165])
+    
+    # Simulate 5 mice with different performance patterns
+    mice_data = {}
+    mouse_names = ['mouse001', 'mouse002', 'mouse003', 'mouse004', 'mouse005']
+    
+    for i, mouse in enumerate(mouse_names):
+        # Create realistic performance data (better at certain angles)
+        base_performance = 0.5 + 0.3 * np.sin(np.radians(angles_deg + i * 30))
+        noise = np.random.normal(0, 0.1, len(angles_deg))
+        performance = np.clip(base_performance + noise, 0, 1)
+        
+        mice_data[mouse] = {
+            'performance': performance,
+            'sessions': [f'session_{mouse}_{j}' for j in range(1, 4)]  # 3 sessions per mouse
+        }
+    
+    # Calculate average performance and SEM
+    all_performances = np.array([mice_data[mouse]['performance'] for mouse in mice_data])
+    avg_performance = np.mean(all_performances, axis=0)
+    sem_performance = np.std(all_performances, axis=0) / np.sqrt(len(mice_data))
+    
+    # Create the figure
+    fig = go.Figure()
+    
+    # Convert to radial coordinates
+    angles_rad = np.radians(angles_deg % 360)
+    angles_rad_closed = np.append(angles_rad, angles_rad[0])
+    avg_performance_closed = np.append(avg_performance, avg_performance[0])
+    sem_performance_closed = np.append(sem_performance, sem_performance[0])
+    
+    # Add average line
+    fig.add_trace(go.Scatterpolar(
+        r=avg_performance_closed,
+        theta=np.degrees(angles_rad_closed),
+        mode='lines+markers',
+        name='Average Performance',
+        line=dict(color='#00adf0', width=3),
+        marker=dict(size=8),
+        hovertemplate='<b>Average Performance</b><br>Angle: %{theta}°<br>Performance: %{r:.3f}<extra></extra>'
+    ))
+    
+    # Add error bars (SEM)
+    fig.add_trace(go.Scatterpolar(
+        r=avg_performance_closed + sem_performance_closed,
+        theta=np.degrees(angles_rad_closed),
+        mode='lines',
+        name='Upper SEM',
+        line=dict(color='#00adf0', width=0),
+        showlegend=False,
+        hoverinfo='skip'
+    ))
+    
+    fig.add_trace(go.Scatterpolar(
+        r=avg_performance_closed - sem_performance_closed,
+        theta=np.degrees(angles_rad_closed),
+        mode='lines',
+        name='Lower SEM',
+        line=dict(color='#00adf0', width=0),
+        fill='tonext',
+        fillcolor='rgba(0, 173, 240, 0.3)',
+        showlegend=False,
+        hoverinfo='skip'
+    ))
+    
+    # Add individual mouse traces
+    colors = px.colors.qualitative.Set1
+    for i, (mouse, data) in enumerate(mice_data.items()):
+        mouse_performance_closed = np.append(data['performance'], data['performance'][0])
+        sessions_str = ', '.join(data['sessions'])
+        
+        fig.add_trace(go.Scatterpolar(
+            r=mouse_performance_closed,
+            theta=np.degrees(angles_rad_closed),
+            mode='lines+markers',
+            name=f'{mouse}',
+            line=dict(dash='dash', width=2, color=colors[i % len(colors)]),
+            marker=dict(size=5),
+            opacity=0.7,
+            hovertemplate=f'<b>{mouse}</b><br>Sessions: {sessions_str}<br>Angle: %{{theta}}°<br>Performance: %{{r:.3f}}<extra></extra>'
+        ))
+    
+    # Configure layout
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1]
+            ),
+            angularaxis=dict(
+                tickmode='array',
+                tickvals=list(range(-180, 181, 30))[:-1],
+                ticktext=[f'{int(a)}°' for a in range(-180, 181, 30)][:-1],
+                direction='clockwise',
+                rotation=90
+            )
+        ),
+        title=dict(text='Test Interactive Plot - Click Legend to Hide/Show Mice', x=0.5),
+        showlegend=True,
+        width=800,
+        height=800
+    )
+    
+    # Print test summary
+    print(f"\n=== TEST PLOT SUMMARY ===")
+    print(f"Generated fake data for {len(mice_data)} mice")
+    print(f"Average performance across all mice: {np.mean(avg_performance):.3f}")
+    print("\nIndividual mouse performances:")
+    for mouse, data in mice_data.items():
+        avg_perf = np.mean(data['performance'])
+        sessions_str = ', '.join(data['sessions'])
+        print(f"  {mouse} [{sessions_str}]: {avg_perf:.3f}")
+    
+    # Save files
+    if output_path is None:
+        output_path = Path.cwd()
+    else:
+        output_path = Path(output_path)
+        
+    if not output_path.exists():
+        output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Generate unique filenames
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    html_filename = f"{timestamp}_{test_name}.html"
+    png_filename = f"{timestamp}_{test_name}.png"
+    
+    # Save HTML (interactive)
+    html_path = output_path / html_filename
+    print(f"\nSaving interactive HTML to: {html_path}")
+    fig.write_html(html_path)
+    
+    # Try to save PNG (static)
+    png_path = output_path / png_filename
+    try:
+        print(f"Saving static PNG to: {png_path}")
+        fig.write_image(png_path)
+        print("✓ PNG saved successfully")
+    except Exception as e:
+        if "kaleido" in str(e):
+            print("⚠ Warning: Could not save PNG - kaleido not installed")
+            print("  Install with: pip install kaleido")
+            print("  (HTML file works fine without kaleido)")
+        else:
+            print(f"⚠ Error saving PNG: {e}")
+    
+    # Show the plot
+    fig.show()
+    
+    print(f"\n=== INSTRUCTIONS ===")
+    print("1. The plot should appear in your notebook")
+    print("2. Click on any mouse name in the legend to hide/show that mouse")
+    print("3. Hover over points to see detailed information")
+    print("4. Use mouse wheel to zoom, drag to pan")
+    print(f"5. Open the HTML file to see the same plot in a browser:")
+    print(f"   - Right-click '{html_filename}' → Open with → Default Application")
+    print(f"   - Or drag the file to your browser")
+    print(f"   - Or use VS Code Live Preview extension")
+    
+    return fig
+
+# Example usage function
+def run_test_with_custom_path():
+    """Example of how to run the test with a custom output path"""
+    
+    # Set up output directory (modify this path as needed)
+    test_output = Path.cwd() / "test_plots"
+    
+    # Run the test
+    fig = test_plotly_interactive_plot(
+        output_path=test_output,
+        test_name="mouse_performance_test"
+    )
+    
+    return fig
+
+# Simple test function that just runs in current directory
+def quick_test():
+    """Quick test in current directory"""
+    return test_plotly_interactive_plot()
