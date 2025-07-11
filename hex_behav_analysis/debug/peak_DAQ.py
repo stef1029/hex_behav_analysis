@@ -194,7 +194,13 @@ def main():
     
     # File path to the DAQ data
     # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250603_131534/250603_131545_mtao108-3e/250603_131545_mtao108-3e-ArduinoDAQ.h5"
-    daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250521_150121/250521_150126_mtaq14-1j/250521_150126_mtaq14-1j-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250521_150121/250521_150126_mtaq14-1j/250521_150126_mtaq14-1j-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250624_143340/250624_143350_mtao101-3c/250624_143350_mtao101-3c-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/250623_113539/250623_113554_mtao101-3c/250623_113554_mtao101-3c-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250416_182113/250416_182121_mtaq14-1j/250416_182121_mtaq14-1j-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250418_143718/250418_143823_mtaq13-3a/250418_143823_mtaq13-3a-ArduinoDAQ.h5"
+    daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250527_121902/250527_121911_mtao106-3a/250527_121911_mtao106-3a-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250624_143340/250624_143350_mtao101-3c/250624_143350_mtao101-3c-ArduinoDAQ.h5"
     # "Z:\Behaviour\2504_pitx_ephys_cohort\250521_150121\250521_150126_mtaq14-1j\250521_150126_mtaq14-1j-ArduinoDAQ.h5"
     # Channels to plot - can be a single channel or a list of channels
     # channels_to_plot = ['CAMERA']  # Modify as needed

@@ -3,12 +3,21 @@ import numpy as np
 from pynwb import NWBHDF5IO
 from functools import lru_cache
 
+from hex_behav_analysis.utils.trial_recovery_by_scales_alignment import ScalesTrialRecovery
+
 class DetectTrials:
     """
     Optimized version of DetectTrials with significant performance improvements.
     """
-    def __init__(self, nwbfile_path):
+    def __init__(self, nwbfile_path, session_dict=None, rig=1):  # Add session_dict parameter
         self.nwbfile_path = nwbfile_path
+        self.session_dict = session_dict  # Store session dict
+        
+        # Recovery-related attributes
+        self.bad_led_channels = []
+        self.recovered_channels = []
+        self.recovery_validation = None
+        self.scales_recovery = None
         
         # Load all data once and cache it
         self._load_all_data()
@@ -19,7 +28,10 @@ class DetectTrials:
         self.rig_id = session_metadata.split(";")[1].split(":")[1]
         self.last_timestamp = self.nwbfile_data['metadata']['last_timestamp']
         
-        # Create trials
+        # Get rig info if session_dict provided
+        self.rig = rig
+        
+        # Create trials (with recovery if needed)
         self.trials = self.create_trial_list(phase=self.phase)
     
     def _load_all_data(self):
@@ -87,6 +99,15 @@ class DetectTrials:
                 for trial in trials:
                     trial_list.append(trial)
             
+            # Check if we need recovery
+            if self.bad_led_channels and self.session_dict and self.rig not in [1, 2]:
+                print(f"\nDetected bad LED channels: {self.bad_led_channels}")
+                # print("Initializing scales-based trial recovery...")
+                
+                recovered_trials = self._run_scales_recovery()
+                if recovered_trials:
+                    trial_list.extend(recovered_trials)
+            
             # Process GO_CUE
             trials = self.find_trials_cue("GO_CUE")
             for trial in trials:
@@ -142,14 +163,11 @@ class DetectTrials:
             # Check for stuck pins
             unique_values = np.unique(cue_data)
             if len(unique_values) == 1 and unique_values[0] == 1:
-                print(f"Warning: {channel} appears to be stuck high. Skipping.")
-                return trials
-            
-            # Check for too few transitions
-            transitions = np.diff(cue_data)
-            num_transitions = np.sum(transitions != 0)
-            if num_transitions < 4:
-                print(f"Warning: {channel} has only {num_transitions} transitions. Skipping.")
+                # print(f"Warning: {channel} appears to be stuck high. Skipping.")
+                # Track bad channel
+                if channel.startswith('LED_'):
+                    port = int(channel.split('_')[1])
+                    self.bad_led_channels.append(port)
                 return trials
             
             # Determine starting point
@@ -192,7 +210,9 @@ class DetectTrials:
         """
         # Initialize sensor_touches for all trials
         for trial in trials:
-            trial["sensor_touches"] = []
+            # Only initialize if not already set by recovery
+            if "sensor_touches" not in trial:
+                trial["sensor_touches"] = []
         
         # Process each sensor channel
         for i in range(1, 7):
@@ -206,6 +226,10 @@ class DetectTrials:
             
             # Process each trial
             for j, trial in enumerate(trials):
+                # SKIP RECOVERED TRIALS - they already have sensor data from PC logs
+                if trial.get('recovered', False):
+                    continue
+                    
                 if phase == '10':
                     start = trial['cue_end']
                 else:
@@ -238,13 +262,17 @@ class DetectTrials:
         
         # Sort sensor touches and find next sensor for each trial
         for trial in trials:
+            # SKIP RECOVERED TRIALS - they already have this info
+            if trial.get('recovered', False):
+                continue
+                
             # Sort by start time
             trial["sensor_touches"].sort(key=lambda touch: touch["sensor_start"])
             
             # Find next sensor
             trial["next_sensor"] = next(
                 (sensor for sensor in trial["sensor_touches"] 
-                 if sensor["sensor_start"] > trial["cue_start"]),
+                if sensor["sensor_start"] > trial["cue_start"]),
                 {}
             )
             
@@ -352,3 +380,79 @@ class DetectTrials:
             merged_trials.append(trial_list[i])
         
         return merged_trials
+    
+    def _run_scales_recovery(self):
+        """Run scales-based recovery for bad LED channels."""
+        recovered_trials = []
+        
+        try:
+            self.scales_recovery = ScalesTrialRecovery(self.session_dict, self.rig)
+            if not self.scales_recovery.is_available():
+                # print(f"Scales recovery not available for rig {self.rig}")
+                return recovered_trials
+            
+            # Run recovery
+            self.scales_recovery.run_recovery()
+            # print(f"Successfully recovered trials using scales alignment")
+            
+            # Get recovered trials for each bad channel
+            for port in self.bad_led_channels:
+                port_trials = self.scales_recovery.get_trials_for_port(port)
+                # print(f"  Port {port}: {len(port_trials)} trials recovered")
+                
+                for trial in port_trials:
+                    trial['correct_port'] = str(port)
+                    trial['phase'] = self.phase
+                    trial['recovered'] = True  # Mark as recovered
+                    recovered_trials.append(trial)
+                
+                self.recovered_channels.append(port)
+            
+            # Validate if Port 4 LED is intact
+            if 4 not in self.bad_led_channels:
+                self._validate_recovery()
+            
+        except Exception as e:
+            print(f"Warning: Scales recovery failed: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return recovered_trials
+    
+    def _validate_recovery(self):
+        """Validate recovery accuracy using Port 4."""
+        if not self.scales_recovery:
+            return
+        
+        # print("\nValidating recovery accuracy using Port 4...")
+        
+        # Get Port 4 trials that were detected normally
+        led4_trials = []
+        channel = "LED_4"
+        if channel in self.nwbfile_data['stimulus']:
+            # Re-detect Port 4 trials for validation
+            cue_data = self.nwbfile_data['stimulus'][channel]['data']
+            cue_timestamps = self.nwbfile_data['stimulus'][channel]['timestamps']
+            
+            if cue_data[0] == 1:
+                start = 0
+            else:
+                start = 1
+            
+            for i in range(start, len(cue_data), 2):
+                if i < len(cue_data):
+                    led4_trials.append({
+                        'cue_start': cue_timestamps[i],
+                        'cue_end': cue_timestamps[i+1] if i+1 < len(cue_timestamps) else None
+                    })
+        
+        if led4_trials:
+            validation = self.scales_recovery.validate_against_port4(led4_trials)
+            
+            if validation:
+                self.recovery_validation = validation
+                # print(f"Validation results:")
+                # print(f"  Trials compared: {validation['n_compared']}")
+                print(f"Validation mean error: {validation['mean_error_ms']:.3f} ms")
+                # print(f"  RMSE: {validation['rmse_ms']:.3f} ms")
+                # print(f"  Within ±1ms: {validation['within_1ms_percent']:.1f}%")

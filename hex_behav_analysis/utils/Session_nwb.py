@@ -55,7 +55,7 @@ class Session:
 
             if not trials_present or recalculate:
                 # Process session to detect trials.
-                self.trial_detector = DetectTrials(self.nwb_file_path)
+                self.trial_detector = DetectTrials(self.nwb_file_path, self.session_dict, self.rig_id)
                 self.trials = self.trial_detector.trials
                 self.save_trials_to_analysis()
                 if recalculate:

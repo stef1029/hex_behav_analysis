@@ -50,3 +50,12 @@ logs/
 Preliminary_analysis_scripts/__pycache__/Full_arduinoDAQ_import.cpython-310.pyc
 *.out
 *.log
+*.jpg
+*.png
+*.jpeg
+*.pdf
+*.csv
+*.nwb
+*.h5
+*.txt
+*.json
