@@ -11,7 +11,9 @@ import re
 from scipy.optimize import minimize_scalar
 from scipy.signal import correlate
 from scipy.stats import linregress
-
+import matplotlib
+import matplotlib.pyplot as plt
+import socket
 
 class ScalesTrialAligner:
     """
@@ -757,7 +759,7 @@ class ScalesTrialAligner:
         initial_offset = self.find_time_offset_minimize()
         print(f"Best offset: {initial_offset:.3f} seconds")
         
-        initial_results = self.align_and_match(initial_offset)
+        initial_results = self.align_and_match(initial_offset, max_match_distance=2)
         initial_stats = self.analyze_timing_differences(initial_results)
         initial_results['timing_stats'] = initial_stats
         
@@ -868,8 +870,292 @@ class ScalesTrialAligner:
         
         # Get aligned trial times with final 2ms correction
         aligned_trials = self.get_aligned_trial_times(final_results, final_correction=0.002)
+
+
         
         return aligned_trials
+
+    def plot_scales_trace_with_trials(self, results, time_window=None, output_path=None, web_display=False):
+        """
+        Plot the full scales trace showing threshold crossings and aligned PC trial times.
+        
+        Args:
+            results (dict): Results from align_and_match containing the offset
+            time_window (tuple): Optional (start, end) times to zoom in on
+            output_path (str): Path to save plot (optional)
+            web_display (bool): Whether to display in web browser
+        """
+        # Configure matplotlib backend for web display if requested
+        if web_display:
+            matplotlib.use('webagg')
+            matplotlib.pyplot.rcParams['webagg.open_in_browser'] = False
+            
+        # Create figure with 2 subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True)
+        
+        # Get scales data
+        weights = self.scales_data['data']
+        timestamps = self.scales_data['timestamps']
+        
+        # Apply time window if specified
+        if time_window:
+            start_time, end_time = time_window
+            mask = (timestamps >= start_time) & (timestamps <= end_time)
+            plot_weights = weights[mask]
+            plot_times = timestamps[mask]
+        else:
+            plot_weights = weights
+            plot_times = timestamps
+            
+        # Top subplot: Raw scales trace
+        ax1.plot(plot_times, plot_weights, 'b-', linewidth=0.5, alpha=0.8, label='Weight')
+        ax1.axhline(y=self.mouse_weight_threshold, color='r', linestyle='--', 
+                    alpha=0.7, linewidth=2, label=f'Threshold ({self.mouse_weight_threshold}g)')
+        
+        # Shade regions where weight is above threshold
+        above_threshold = np.array(plot_weights) >= self.mouse_weight_threshold
+        
+        # Find continuous regions above threshold
+        if np.any(above_threshold):
+            # Get start and end indices of continuous regions
+            diff = np.diff(np.concatenate(([False], above_threshold, [False])).astype(int))
+            starts = np.where(diff == 1)[0]
+            ends = np.where(diff == -1)[0]
+            
+            # Shade regions
+            for start, end in zip(starts, ends):
+                if start < len(plot_times) and end <= len(plot_times):
+                    duration = plot_times[end-1] - plot_times[start]
+                    if duration >= 1.0:
+                        # Platform event (≥1s)
+                        ax1.axvspan(plot_times[start], plot_times[end-1], alpha=0.3, color='green', 
+                                label='Platform event' if start == starts[0] else '')
+                        # Mark trial start point (1s after platform entry)
+                        event_time = plot_times[start] + 1.0
+                        ax1.axvline(x=event_time, color='darkgreen', linestyle=':', 
+                                alpha=0.7, linewidth=1)
+                    else:
+                        # Short activation
+                        ax1.axvspan(plot_times[start], plot_times[end-1], alpha=0.2, color='yellow',
+                                label='Short activation' if start == starts[0] else '')
+        
+        ax1.set_ylabel('Weight (g)', fontsize=12)
+        ax1.set_title('Scales Trace with Platform Events', fontsize=14)
+        ax1.legend(loc='upper right')
+        ax1.grid(True, alpha=0.3)
+        
+        # Bottom subplot: Event alignment
+        # Plot platform events
+        platform_in_window = [t for t in self.platform_events 
+                            if (not time_window or (time_window[0] <= t <= time_window[1]))]
+        ax2.scatter(platform_in_window, np.ones(len(platform_in_window)) * 2, 
+                c='green', s=100, marker='o', label='Platform events', zorder=3)
+        
+        # Plot aligned PC trial times
+        matched_label_added = False
+        unmatched_label_added = False
+        
+        for match in results['matched_pc_trials']:
+            if not time_window or (time_window[0] <= match['platform_time'] <= time_window[1]):
+                label = 'Matched PC trials' if not matched_label_added else ''
+                ax2.scatter([match['adjusted_time']], [1], c='red', s=100, marker='s', 
+                        label=label, zorder=3)
+                matched_label_added = True
+                # Draw connection line
+                ax2.plot([match['adjusted_time'], match['platform_time']], [1, 2], 
+                        'g-', alpha=0.5, linewidth=1, zorder=1)
+        
+        # Plot unmatched events
+        for event in results['unmatched_platform_events']:
+            platform_time = event['platform_time']
+            if not time_window or (time_window[0] <= platform_time <= time_window[1]):
+                ax2.scatter([platform_time], [2], c='orange', s=150, marker='o', 
+                        edgecolors='black', linewidth=2, zorder=4)
+        
+        for trial in results['unmatched_pc_trials']:
+            adjusted_time = trial['adjusted_time']
+            if not time_window or (time_window[0] <= adjusted_time <= time_window[1]):
+                label = 'Unmatched' if not unmatched_label_added else ''
+                ax2.scatter([adjusted_time], [1], c='orange', s=150, marker='s', 
+                        edgecolors='black', linewidth=2, label=label, zorder=4)
+                unmatched_label_added = True
+        
+        ax2.set_ylim(0.5, 2.5)
+        ax2.set_yticks([1, 2])
+        ax2.set_yticklabels(['PC trials (aligned)', 'Platform events'])
+        ax2.set_xlabel('Time (seconds)', fontsize=12)
+        ax2.set_title(f'Event Alignment Visualization (PC match rate: {results["pc_match_rate"]*100:.1f}%)', fontsize=14)
+        ax2.legend(loc='upper right')
+        ax2.grid(True, alpha=0.3)
+        
+        # Set x-axis limits
+        if time_window:
+            plt.xlim(time_window)
+        
+        plt.tight_layout()
+        
+        if output_path:
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            print(f"Plot saved to: {output_path}")
+        
+        if web_display:
+            # Get local IP address
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            port = 8988  # Default WebAgg port
+            
+            print("\n" + "="*50)
+            print("Web server started!")
+            print(f"Access the plot at: http://{local_ip}:{port}")
+            print(f"Or locally at: http://localhost:{port}")
+            print("Press Ctrl+C in the terminal to stop the server")
+            print("="*50 + "\n")
+            
+        plt.show()
+        
+        if not web_display:
+            plt.close()
+
+    def load_behaviour_scales_data(self):
+        """
+        Load scales data from behaviour JSON file and compare with DAQ data.
+        """
+        if not self.behaviour_data_path.exists():
+            print("No behaviour data file found for scales comparison")
+            return None
+        
+        with open(self.behaviour_data_path, 'r') as f:
+            behaviour_data = json.load(f)
+        
+        # Get scales data from behaviour logs
+        scales_data_raw = behaviour_data.get("Scales data", [])
+        
+        if not scales_data_raw:
+            print("No 'Scales data' found in behaviour logs")
+            return None
+        
+        # Parse scales data
+        self.behaviour_scales_data = {
+            'timestamps': [],
+            'weights': [],
+            'message_ids': []
+        }
+        
+        for entry in scales_data_raw:
+            if len(entry) >= 3:
+                self.behaviour_scales_data['timestamps'].append(entry[0])
+                self.behaviour_scales_data['weights'].append(entry[1])
+                self.behaviour_scales_data['message_ids'].append(entry[2])
+        
+        # Convert to numpy arrays for easier analysis
+        self.behaviour_scales_data['timestamps'] = np.array(self.behaviour_scales_data['timestamps'])
+        self.behaviour_scales_data['weights'] = np.array(self.behaviour_scales_data['weights'])
+        self.behaviour_scales_data['message_ids'] = np.array(self.behaviour_scales_data['message_ids'])
+        
+        return self.behaviour_scales_data
+
+    def compare_scales_data_sources(self):
+        """
+        Compare scales data from behaviour logs with DAQ data from NWB file.
+        """
+        print("\n" + "="*60)
+        print("SCALES DATA COMPARISON")
+        print("="*60)
+        
+        # Load behaviour scales data
+        behaviour_scales = self.load_behaviour_scales_data()
+        
+        if behaviour_scales is None:
+            return
+        
+        # Compare counts
+        n_behaviour = len(behaviour_scales['timestamps'])
+        n_daq = len(self.scales_data['timestamps'])
+        
+        print(f"\nMessage counts:")
+        print(f"  Behaviour logs: {n_behaviour} messages")
+        print(f"  DAQ (NWB file): {n_daq} samples")
+        print(f"  Difference: {n_daq - n_behaviour}")
+        print(f"  Ratio (DAQ/Behaviour): {n_daq/n_behaviour:.2f}")
+        
+        # Check message ID continuity
+        message_ids = behaviour_scales['message_ids']
+        expected_ids = np.arange(message_ids[0], message_ids[-1] + 1)
+        missing_ids = np.setdiff1d(expected_ids, message_ids)
+        
+        print(f"\nMessage ID analysis:")
+        print(f"  First ID: {message_ids[0]}")
+        print(f"  Last ID: {message_ids[-1]}")
+        print(f"  Expected messages: {len(expected_ids)}")
+        print(f"  Missing IDs: {len(missing_ids)}")
+        if len(missing_ids) > 0 and len(missing_ids) <= 10:
+            print(f"    Missing: {missing_ids}")
+        elif len(missing_ids) > 10:
+            print(f"    First 10 missing: {missing_ids[:10]}...")
+        
+        # Time range comparison
+        print(f"\nTime range comparison:")
+        print(f"  Behaviour logs:")
+        print(f"    Start: {behaviour_scales['timestamps'][0]:.3f}s")
+        print(f"    End: {behaviour_scales['timestamps'][-1]:.3f}s")
+        print(f"    Duration: {behaviour_scales['timestamps'][-1] - behaviour_scales['timestamps'][0]:.3f}s")
+        print(f"  DAQ data:")
+        print(f"    Start: {self.scales_data['timestamps'][0]:.3f}s")
+        print(f"    End: {self.scales_data['timestamps'][-1]:.3f}s")
+        print(f"    Duration: {self.scales_data['timestamps'][-1] - self.scales_data['timestamps'][0]:.3f}s")
+        
+        # Sampling rate analysis
+        behaviour_intervals = np.diff(behaviour_scales['timestamps'])
+        daq_intervals = np.diff(self.scales_data['timestamps'][:1000])  # First 1000 to avoid memory issues
+        
+        print(f"\nSampling intervals:")
+        print(f"  Behaviour logs:")
+        print(f"    Mean: {np.mean(behaviour_intervals)*1000:.1f}ms")
+        print(f"    Std: {np.std(behaviour_intervals)*1000:.1f}ms")
+        print(f"    Min: {np.min(behaviour_intervals)*1000:.1f}ms")
+        print(f"    Max: {np.max(behaviour_intervals)*1000:.1f}ms")
+        print(f"  DAQ data (first 1000 samples):")
+        print(f"    Mean: {np.mean(daq_intervals)*1000:.1f}ms")
+        print(f"    Std: {np.std(daq_intervals)*1000:.1f}ms")
+        print(f"    Min: {np.min(daq_intervals)*1000:.1f}ms")
+        print(f"    Max: {np.max(daq_intervals)*1000:.1f}ms")
+        
+        # Weight statistics comparison
+        print(f"\nWeight statistics:")
+        print(f"  Behaviour logs:")
+        print(f"    Mean: {np.mean(behaviour_scales['weights']):.2f}g")
+        print(f"    Std: {np.std(behaviour_scales['weights']):.2f}g")
+        print(f"    Min: {np.min(behaviour_scales['weights']):.2f}g")
+        print(f"    Max: {np.max(behaviour_scales['weights']):.2f}g")
+        print(f"  DAQ data:")
+        print(f"    Mean: {np.mean(self.scales_data['data']):.2f}g")
+        print(f"    Std: {np.std(self.scales_data['data']):.2f}g")
+        print(f"    Min: {np.min(self.scales_data['data']):.2f}g")
+        print(f"    Max: {np.max(self.scales_data['data']):.2f}g")
+        
+        # Find time offset between the two data sources
+        # Use first platform event as reference
+        if len(self.platform_events) > 0:
+            # Find corresponding weight spike in behaviour data
+            platform_time = self.platform_events[0] - 1.0  # Subtract 1s to get actual platform mount time
+            
+            # Look for weight increase in behaviour data around this time
+            search_window = 5.0  # seconds
+            mask = (self.scales_data['timestamps'] >= platform_time - search_window) & \
+                (self.scales_data['timestamps'] <= platform_time + search_window)
+            
+            if np.any(mask):
+                daq_platform_idx = np.where(mask)[0][0]
+                daq_platform_time = self.scales_data['timestamps'][daq_platform_idx]
+                
+                # Find corresponding time in behaviour data
+                behaviour_mask = (behaviour_scales['weights'] > self.mouse_weight_threshold)
+                if np.any(behaviour_mask):
+                    first_above_idx = np.where(behaviour_mask)[0][0]
+                    behaviour_platform_time = behaviour_scales['timestamps'][first_above_idx]
+                    
+                    time_offset = daq_platform_time - behaviour_platform_time
+                    print(f"\nEstimated time offset (DAQ - Behaviour): {time_offset:.3f}s")
 
 
 # Example usage
@@ -877,15 +1163,57 @@ if __name__ == "__main__":
     from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
     
     print("Loading cohort info...")
-    cohort = Cohort_folder('/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics')
+    cohort = Cohort_folder('/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment', use_existing_cohort_info=True)
     
-    session_dict = cohort.get_session("250624_143350_mtao101-3d")
+    session_dict = cohort.get_session("250611_112601_mtao106-3a")
+
+    # cohort = Cohort_folder('/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics')
+    
+    # session_dict = cohort.get_session("250624_143350_mtao101-3d")
     
     # Create aligner
     aligner = ScalesTrialAligner(session_dict)
     
     # Run three-stage alignment
     initial_results, refined_results, final_results, aligned_trials = aligner.run_three_stage_alignment()
+
+    aligner.load_scales_data()
+    aligner.compare_scales_data_sources()
+
+    aligner.plot_scales_trace_with_trials(
+        final_results,
+        time_window=None,  # Show first 10 minutes
+        web_display=True
+    )
     
     # The aligned_trials list now contains all PC trials with their aligned DAQ times
     print(f"\n\nTotal aligned trials available: {len(aligned_trials)}")
+
+#         session_data = [
+#     ("250530_150321_mtao108-3e", 0.795),
+#     ("250611_125320_mtao108-3e", -3.062),
+#     ("250624_143350_mtao101-3c", -5.648),
+#     ("250602_113554_mtao107-2a", -13.231),
+#     ("250609_124914_mtao108-3e", 21.422),
+#     ("250522_114207_mtao106-3a", 23.150),
+#     ("250610_134958_mtao108-3e", 24.914),
+#     ("250529_131006_mtao106-3a", -26.693),
+#     ("250603_131545_mtao108-3e", -42.585),
+#     ("250522_130749_mtao107-2a", -343.102),
+#     ("250604_134248_mtao107-2a", -642.681),
+#     ("250604_153227_mtao106-3a", -665.036),
+#     ("250610_122940_mtao106-3a", -731.668),
+#     ("250602_100403_mtao106-3a", 768.291),
+#     ("250603_111907_mtao106-3a", -1251.353),
+#     ("250528_123545_mtao108-3e", 1828.919), # questionable
+#     ("250609_112131_mtao106-3a", 1917.676),
+#     ("250603_120358_mtao106-3a", -9487.507),
+#     ("250611_112601_mtao106-3a", -21302.817),
+#     ("250528_111659_mtao106-3a", 26451.698) # near very bad
+# ]
+    # 250527_121911_mtao106-3a
+# 250527_133843_mtao108-3e
+# 250527_150817_mtao101-3g
+# 250603_110543_mtao106-3a 
+# 250522_163010_mtao101-3b # good quality for some reason
+# 250528_140739_mtao101-3g

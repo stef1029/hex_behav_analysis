@@ -199,16 +199,16 @@ def main():
     # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/250623_113539/250623_113554_mtao101-3c/250623_113554_mtao101-3c-ArduinoDAQ.h5"
     # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250416_182113/250416_182121_mtaq14-1j/250416_182121_mtaq14-1j-ArduinoDAQ.h5"
     # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250418_143718/250418_143823_mtaq13-3a/250418_143823_mtaq13-3a-ArduinoDAQ.h5"
+    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250610_122933/250610_122940_mtao106-3a/250610_122940_mtao106-3a-ArduinoDAQ.h5"
     daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250527_121902/250527_121911_mtao106-3a/250527_121911_mtao106-3a-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250624_143340/250624_143350_mtao101-3c/250624_143350_mtao101-3c-ArduinoDAQ.h5"
     # "Z:\Behaviour\2504_pitx_ephys_cohort\250521_150121\250521_150126_mtaq14-1j\250521_150126_mtaq14-1j-ArduinoDAQ.h5"
     # Channels to plot - can be a single channel or a list of channels
-    # channels_to_plot = ['CAMERA']  # Modify as needed
-    channels_to_plot = ['CAMERA', 'SENSOR1', 'LED_1', 'VALVE1', 'SENSOR2', 'LED_2', 'VALVE2',
-                        'SENSOR3', 'LED_3', 'VALVE3', 'SENSOR4', 'LED_4', 'VALVE4',
-                        'SENSOR5', 'LED_5', 'VALVE5', 'SENSOR6', 'LED_6', 'VALVE6',
-                        # 'BUZZER1', 'BUZZER2', 'BUZZER3', 'BUZZER4', 'BUZZER5', 'BUZZER6', 
-                        'GO_CUE', 'NOGO_CUE']
+    channels_to_plot = ['SCALES']  # Modify as needed
+    # channels_to_plot = ['CAMERA', 'SENSOR1', 'LED_1', 'VALVE1', 'SENSOR2', 'LED_2', 'VALVE2',
+    #                     'SENSOR3', 'LED_3', 'VALVE3', 'SENSOR4', 'LED_4', 'VALVE4',
+    #                     'SENSOR5', 'LED_5', 'VALVE5', 'SENSOR6', 'LED_6', 'VALVE6',
+    #                     # 'BUZZER1', 'BUZZER2', 'BUZZER3', 'BUZZER4', 'BUZZER5', 'BUZZER6', 
+    #                     'GO_CUE', 'NOGO_CUE']
     # channels_to_plot = [
     #     # "SPOT1", "SPOT2", "SPOT3", "SPOT4", "SPOT5", "SPOT6", 
     #         "SENSOR1", "LED_1", "VALVE1", 

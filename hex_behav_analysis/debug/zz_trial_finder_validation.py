@@ -515,9 +515,9 @@ if __name__ == "__main__":
     from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
     
     print("Loading cohort info...")
-    cohort = Cohort_folder('/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics')
+    cohort = Cohort_folder('/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment')
     
-    session_dict = cohort.get_session("250624_143350_mtao101-3d")
+    session_dict = cohort.get_session("250527_121911_mtao106-3a")
     
     # Create comparison instance and run with validation plots
     comparator = Port4TrialComparison(session_dict)

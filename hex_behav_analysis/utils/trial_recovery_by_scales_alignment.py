@@ -226,7 +226,7 @@ class ScalesTrialRecovery:
         
         # Stage 1: Initial offset
         offset1 = self._find_initial_offset(pc_trial_times)
-        matches1 = self._match_trials(pc_trial_times, self.platform_events, offset1, 1.0)
+        matches1 = self._match_trials(pc_trial_times, self.platform_events, offset1, 2.0)
         
         if len(matches1['matched']) < 10:
             raise ValueError("Too few matched trials for alignment")
