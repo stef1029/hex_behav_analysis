@@ -1,5 +1,6 @@
 """
 Streamlined scales-based alignment for integration into trial finding.
+Updated to use linear transformations throughout all alignment stages.
 """
 
 import numpy as np
@@ -7,13 +8,14 @@ from pathlib import Path
 from pynwb import NWBHDF5IO
 import json
 import re
-from scipy.optimize import minimize_scalar
+from scipy.optimize import differential_evolution
 from scipy.stats import linregress
 
 
 class ScalesTrialRecovery:
     """
     Recover trial times using scales platform events when LED traces are corrupted.
+    Now uses linear transformations at all stages for better alignment.
     """
     
     def __init__(self, session_dict, rig_id):
@@ -22,6 +24,7 @@ class ScalesTrialRecovery:
         
         Args:
             session_dict (dict): Session dictionary from Cohort_folder
+            rig_id (str): Rig identifier
         """
         self.session_dict = session_dict
         self.session_id = session_dict.get('session_id')
@@ -70,7 +73,7 @@ class ScalesTrialRecovery:
         self._get_platform_events()
         self._load_all_pc_trials()
         
-        # Run three-stage alignment
+        # Run three-stage alignment with linear transformations
         self._run_alignment()
         
         return self.aligned_trials
@@ -221,35 +224,36 @@ class ScalesTrialRecovery:
         self.pc_trials_all = trials
     
     def _run_alignment(self):
-        """Run three-stage alignment process."""
+        """Run three-stage alignment process with linear transformations throughout."""
         pc_trial_times = [t['pc_time'] for t in self.pc_trials_all]
         
-        # Stage 1: Initial offset
-        offset1 = self._find_initial_offset(pc_trial_times)
-        matches1 = self._match_trials(pc_trial_times, self.platform_events, offset1, 2.0)
+        # Stage 1: Initial linear transformation
+        scale1, offset1 = self._find_initial_linear_transform(pc_trial_times, max_match_distance=2.0)
+        matches1 = self._match_trials_linear(pc_trial_times, self.platform_events, 
+                                           scale1, offset1, 2.0)
         
         if len(matches1['matched']) < 10:
             raise ValueError("Too few matched trials for alignment")
         
-        # Stage 2: Linear transformation
+        # Stage 2: Refine linear transformation using matched pairs
         matched_pc = [m['pc_time'] for m in matches1['matched']]
         matched_platform = [m['platform_time'] for m in matches1['matched']]
         
         slope2, intercept2, r_value, _, _ = linregress(matched_pc, matched_platform)
         
-        # Constrain scale
+        # Constrain scale if it deviates too much
         if abs(slope2 - 1.0) > 0.01:
             slope2 = 1.0
         
-        # Stage 3: Refinement with best matches
+        # Stage 3: Final refinement with best matches
         matches2 = self._match_trials_linear(pc_trial_times, self.platform_events, 
-                                        slope2, intercept2, 0.5)
+                                           slope2, intercept2, 0.5)
         
-        # Select best matches
+        # Select best matches for final refinement
         distances = [m['distance'] for m in matches2['matched']]
         mean_dist = np.mean(distances)
         best_matches = [m for m in matches2['matched'] 
-                    if abs(m['distance'] - mean_dist) <= 0.08]
+                       if abs(m['distance'] - mean_dist) <= 0.08]
         
         if len(best_matches) >= 5:
             best_pc = [m['pc_time'] for m in best_matches]
@@ -287,22 +291,51 @@ class ScalesTrialRecovery:
                 'outcome_time': aligned_outcome_time,
                 'response_port': trial.get('response_port')  # Port actually touched
             })
-    def _find_initial_offset(self, pc_times, max_offset=100):
-        """Find initial offset using optimization."""
-        def cost(offset):
-            total = 0
-            platform_array = np.array(self.platform_events)
-            for pc_time in pc_times:
-                adjusted = pc_time + offset
-                distances = np.abs(platform_array - adjusted)
-                total += np.min(distances) ** 2
-            return total
-        
-        result = minimize_scalar(cost, bounds=(-max_offset, max_offset), method='bounded')
-        return result.x
     
-    def _match_trials(self, pc_times, platform_times, offset, scale, max_dist=0.5):
-        """Match PC trials to platform events."""
+    def _find_initial_linear_transform(self, pc_times, max_match_distance=2.0):
+        """Find initial linear transformation using optimization."""
+        platform_array = np.array(self.platform_events)
+        pc_array = np.array(pc_times)
+        
+        def objective(params):
+            """Objective function: minimize sum of minimum distances."""
+            scale, offset = params
+            total_cost = 0
+            
+            # For each PC trial, find distance to nearest platform event
+            for pc_time in pc_array:
+                adjusted_time = pc_time * scale + offset
+                distances = np.abs(platform_array - adjusted_time)
+                min_distance = np.min(distances)
+                # Use squared distance with threshold
+                if min_distance <= max_match_distance:
+                    total_cost += min_distance ** 2
+                else:
+                    total_cost += max_match_distance ** 2
+            
+            return total_cost
+        
+        # Set bounds for optimization
+        # Scale: allow up to 0.5% clock drift (5000 ppm)
+        scale_bounds = (0.995, 1.005)
+        # Offset: search within ±100 seconds
+        offset_bounds = (-100, 100)
+        
+        # Use differential evolution for global optimization
+        result = differential_evolution(
+            objective,
+            bounds=[scale_bounds, offset_bounds],
+            seed=42,
+            maxiter=100,
+            popsize=15,
+            atol=1e-10,
+            tol=1e-10
+        )
+        
+        return result.x[0], result.x[1]
+    
+    def _match_trials_linear(self, pc_times, platform_times, scale, offset, max_dist=0.5):
+        """Match trials with linear transformation."""
         matched = []
         platform_array = np.array(platform_times)
         used_platforms = set()
@@ -321,10 +354,6 @@ class ScalesTrialRecovery:
                 used_platforms.add(nearest_idx)
         
         return {'matched': matched}
-    
-    def _match_trials_linear(self, pc_times, platform_times, scale, offset, max_dist=0.5):
-        """Match trials with linear transformation."""
-        return self._match_trials(pc_times, platform_times, offset, scale, max_dist)
     
     def get_trials_for_port(self, port):
         """
