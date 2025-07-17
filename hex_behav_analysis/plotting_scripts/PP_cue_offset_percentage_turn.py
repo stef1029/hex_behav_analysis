@@ -142,10 +142,15 @@ def mouse_heading_cue_offset(sessions,
                 'timeouts': timeouts
             })
 
-    def get_data(trials, mouse_id):
+    def get_data(trials, mouse_id, cue_time_str):
         """
         Calculate turn percentages for a set of trials.
         Returns the average percentage of turn completed at cue offset.
+        
+        Args:
+            trials: List of trial dictionaries
+            mouse_id: ID of the mouse being analysed
+            cue_time_str: String representation of cue duration (e.g., '100ms', 'unlimited')
         """
         percentages = []
         for trial in trials:
@@ -157,7 +162,25 @@ def mouse_heading_cue_offset(sessions,
                 
             dlc_data = trial.get('DLC_data')
             timestamps = dlc_data['timestamps']
-            cue_offset_time = trial['cue_end'] + offset
+            
+            # Calculate cue offset time
+            if trial.get('cue_end') is not None:
+                cue_offset_time = trial['cue_end'] + offset
+            else:
+                # Extract cue duration from string only if cue_end is None
+                if cue_time_str == 'unlimited':
+                    # For unlimited cues, we need to use a different approach
+                    # Skip this trial as we can't determine cue end
+                    continue
+                else:
+                    # Extract numeric value from strings like '100ms', '1000ms', etc.
+                    cue_duration_ms = int(cue_time_str.replace('ms', ''))
+                    # Convert to seconds
+                    cue_duration_s = cue_duration_ms / 1000.0
+                    # Calculate cue end time assuming cue starts at trial start
+                    cue_start_time = trial.get('cue_start', trial.get('trial_start', 0))
+                    cue_offset_time = cue_start_time + cue_duration_s + offset
+            
             start_angle = trial['turn_data']['cue_presentation_angle']
             
             # Find the frame index closest to cue offset time
@@ -268,7 +291,7 @@ def mouse_heading_cue_offset(sessions,
                 (unsuccessful_data, 'unsuccessful_trials')
             ]:
                 # Calculate turn percentage for this set of trials
-                result = get_data(trials[mouse][trial_type], mouse)
+                result = get_data(trials[mouse][trial_type], mouse, cue_time)
                 
                 # Initialize the mouse's data list if needed
                 if mouse not in data_dict[cue_time]['data']:

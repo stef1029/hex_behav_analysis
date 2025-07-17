@@ -975,18 +975,11 @@ def main():
     Main function demonstrating usage of the Cohort_folder class.
     """
     # Example usage with ephys data scanning enabled:
-    test_dir = Path(r"D:\Behaviour\July_cohort_24\Portable_data")
-
-    # Create cohort folder instance with ephys data scanning enabled
-    cohort = Cohort_folder(
-        test_dir,
-        multi=True,
-        portable_data=True,
-        use_existing_cohort_info=True,
-        plot=True,
-        ephys_data=True,
-        dlc_model_name="DLC_Resnet50_tetrodesJun1shuffle1_snapshot_080"  # Example of specifying model
-    )
+    cohort = Cohort_folder(r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Training", 
+                           multi=True, 
+                           OEAB_legacy=False, 
+                           use_existing_cohort_info=False,
+                           plot=True)
 
 
 if __name__ == "__main__":

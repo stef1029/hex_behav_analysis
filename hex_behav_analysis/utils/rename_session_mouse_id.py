@@ -139,34 +139,13 @@ def main():
     """
     Main function to execute the mouse ID renaming process.
     """
-    # Define the session folder path and new mouse ID here
-    # session_folder_path = "/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/250624_143340/250624_143350_mtao101-3c"  # Update this path
-    # new_mouse_id = "mtao101-3d"  # Update this to the desired new mouse ID
-    
+    cohort_directory = Path("/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment")
+    from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250603_110258/250603_110309_mtao106-1b'
-    # new_mouse_id = "mtao106-3b"  # Update this to the desired new mouse ID
+    cohort = Cohort_folder(cohort_directory, OEAB_legacy=False, use_existing_cohort_info=False)
 
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250603_110258/250603_110319_mtao106-3e'
-    # new_mouse_id = "mtao106-1e"  # Update this to the desired new mouse ID
-
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250602_100237/250602_100251_mtao106-1b'
-    # new_mouse_id = "mtao106-3b"  # Update this to the desired new mouse ID
-
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250602_100237/250602_100302_mtao106-3e'
-    # new_mouse_id = "mtao106-1e"  # Update this to the desired new mouse ID
-
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250609_121018/250609_121034_mtao106-1b'
-    # new_mouse_id = "mtao106-3b"  # Update this to the desired new mouse ID
-
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250609_111851/250609_111910_mtao106-1b'
-    # new_mouse_id = "mtao106-3b"  # Update this to the desired new mouse ID
-
-    # session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250609_121018/250609_121043_mtao106-3e'
-    # new_mouse_id = "mtao106-1e"  # Update this to the desired new mouse ID
-
-    session_folder_path = '/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250609_111851/250609_111921_mtao106-3e'
-    new_mouse_id = "mtao106-1e"  # Update this to the desired new mouse ID
+    session_folder_path = cohort.get_session('250512_132404_mtao102-2e')['directory']
+    new_mouse_id = 'mtao102-3e'  # Replace with the actual new mouse ID you want to use
 
 
     try:

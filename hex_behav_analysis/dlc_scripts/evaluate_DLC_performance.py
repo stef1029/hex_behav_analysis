@@ -3,6 +3,7 @@ DeepLabCut Performance Evaluation Script
 
 This script evaluates DeepLabCut analysis performance by generating annotated images
 showing all tracked body parts, head angles, LED positions, and calculated angles at cue onset.
+Images can be sorted by cue presentation angle or mouse head bearing.
 """
 
 import cv2 as cv
@@ -17,7 +18,9 @@ from tqdm import tqdm
 def evaluate_deeplabcut_performance(
     session, 
     output_directory: str,
-    likelihood_threshold: float = 0.6
+    likelihood_threshold: float = 0.6,
+    sort_by: str = 'cue_angle',
+    frame_offset: int = 0  # Add this parameter
 ) -> None:
     """
     Evaluate DeepLabCut performance by creating annotated images at cue onset.
@@ -29,6 +32,8 @@ def evaluate_deeplabcut_performance(
     - LED position
     - Angle values and likelihoods as text overlays
     
+    Images are saved in order sorted by either cue presentation angle or mouse head bearing.
+    
     Parameters:
     -----------
     session : Session object
@@ -37,32 +42,51 @@ def evaluate_deeplabcut_performance(
         Path where annotated images will be saved
     likelihood_threshold : float, default=0.6
         Minimum likelihood threshold for ear position detection
-    
+    sort_by : str, default='cue_angle'
+        Sorting method for output images. Options:
+        - 'cue_angle': Sort by cue presentation angle
+        - 'head_bearing': Sort by mouse head bearing at cue onset
+    frame_offset : int, default=0
+        Number of frames to offset the displayed video frame relative to cue onset.
+        Positive values show frames after cue onset, negative values show frames before.
+        DeepLabCut data will still be from the original cue onset frame.
+
     Returns:
     --------
     None
         Images are saved to the specified output directory
+    
+    Raises:
+    -------
+    ValueError
+        If sort_by parameter is not 'cue_angle' or 'head_bearing'
     """
+    
+    # Validate sort_by parameter
+    if sort_by not in ['cue_angle', 'head_bearing']:
+        raise ValueError("sort_by must be either 'cue_angle' or 'head_bearing'")
     
     # Create output directory structure
     session_id = session.session_ID
-    output_folder_name = f"{session_id}_dlc_evaluation"
+    output_folder_name = f"{session_id}_dlc_evaluation_sorted_by_{sort_by}"
     output_path = Path(output_directory) / output_folder_name
     output_path.mkdir(parents=True, exist_ok=True)
     
     # Count total trials for progress tracking
     total_trials = len(session.trials)
     print(f"Processing {total_trials} trials for session {session_id}")
+    print(f"Sorting method: {sort_by}")
     
-    # Process each trial with progress bar
-    processed_trials = []
+    # First pass: collect all valid trials with their data
+    print("\nPhase 1: Collecting valid trials...")
+    valid_trials = []
     skipped_trials = []
     
-    with tqdm(total=total_trials, desc="Processing trials", unit="trial") as pbar:
+    with tqdm(total=total_trials, desc="Collecting trials", unit="trial") as pbar:
         for trial_idx, trial in enumerate(session.trials):
             try:
                 # Update progress bar description with current trial info
-                pbar.set_description(f"Processing trial {trial_idx + 1}/{total_trials}")
+                pbar.set_description(f"Validating trial {trial_idx + 1}/{total_trials}")
                 
                 # Skip trials without required data or turn_data
                 if not _validate_trial_data(trial):
@@ -92,11 +116,66 @@ def evaluate_deeplabcut_performance(
                     pbar.update(1)
                     continue
                     
+                # Collect trial data for sorting
+                turn_data = trial['turn_data']
+                cue_angle = abs(turn_data['cue_presentation_angle'])
+                head_bearing = turn_data['bearing']
+                
+                valid_trials.append({
+                    'trial_idx': trial_idx,
+                    'trial': trial,
+                    'cue_onset_frame': cue_onset_frame,
+                    'cue_angle': cue_angle,
+                    'head_bearing': head_bearing,
+                    'sort_value': cue_angle if sort_by == 'cue_angle' else head_bearing
+                })
+                
+                # Update progress bar with collection info
+                pbar.set_postfix({
+                    'collected': len(valid_trials),
+                    'skipped': len(skipped_trials)
+                })
+                
+            except Exception as e:
+                skipped_trials.append({
+                    'trial_idx': trial_idx,
+                    'reason': f'Error during validation: {str(e)}'
+                })
+                
+            # Update progress bar
+            pbar.update(1)
+    
+    # Sort valid trials by the specified parameter
+    print(f"\nPhase 2: Sorting {len(valid_trials)} valid trials by {sort_by}...")
+    valid_trials.sort(key=lambda x: x['sort_value'])
+    
+    # Second pass: process sorted trials and create images
+    print("\nPhase 3: Processing sorted trials and creating images...")
+    processed_trials = []
+    processing_errors = []
+    
+    with tqdm(total=len(valid_trials), desc="Creating images", unit="image") as pbar:
+        for sorted_idx, trial_data in enumerate(valid_trials):
+            try:
+                trial_idx = trial_data['trial_idx']
+                trial = trial_data['trial']
+                cue_onset_frame = trial_data['cue_onset_frame']
+                cue_angle = trial_data['cue_angle']
+                head_bearing = trial_data['head_bearing']
+                
+                # Update progress bar description
+                pbar.set_description(
+                    f"Processing sorted position {sorted_idx + 1}/{len(valid_trials)} "
+                    f"(original trial {trial_idx})"
+                )
+                
                 # Load video frame using session's video path
-                video_frame = _load_video_frame(session, cue_onset_frame)
+                offset_frame_number = cue_onset_frame + frame_offset
+                video_frame = _load_video_frame(session, offset_frame_number)
                 if video_frame is None:
-                    skipped_trials.append({
+                    processing_errors.append({
                         'trial_idx': trial_idx,
+                        'sorted_idx': sorted_idx,
                         'reason': 'Could not load video frame'
                     })
                     pbar.update(1)
@@ -104,37 +183,38 @@ def evaluate_deeplabcut_performance(
                     
                 # Create annotated image using existing session calculations
                 annotated_frame = _create_annotated_image(
-                    video_frame, trial, session, cue_onset_frame
+                    video_frame, trial, session, cue_onset_frame, frame_offset
                 )
                 
-                # Save annotated image
-                cue_angle = abs(trial['turn_data']['cue_presentation_angle'])
-                filename = f"trial_{trial_idx:03d}_angle_{cue_angle:05.1f}.jpg"
+                # Save annotated image with sorted index in filename
+                # Include both cue angle and head bearing in filename for reference
+                filename = (
+                    f"{sorted_idx:04d}_trial{trial_idx:03d}_"
+                    f"cue{cue_angle:05.1f}_bearing{head_bearing:05.1f}.jpg"
+                )
                 output_filepath = output_path / filename
                 cv.imwrite(str(output_filepath), annotated_frame)
                 
                 processed_trials.append({
+                    'sorted_idx': sorted_idx,
                     'trial_idx': trial_idx,
                     'cue_angle': cue_angle,
+                    'head_bearing': head_bearing,
                     'filename': filename
                 })
                 
                 # Update progress bar with success info
                 pbar.set_postfix({
                     'processed': len(processed_trials),
-                    'skipped': len(skipped_trials),
-                    'current_angle': f"{cue_angle:.1f}°"
+                    'errors': len(processing_errors),
+                    f'current_{sort_by}': f"{trial_data['sort_value']:.1f}°"
                 })
                 
             except Exception as e:
-                skipped_trials.append({
+                processing_errors.append({
                     'trial_idx': trial_idx,
-                    'reason': f'Error: {str(e)}'
-                })
-                pbar.set_postfix({
-                    'processed': len(processed_trials),
-                    'skipped': len(skipped_trials),
-                    'error': 'Yes'
+                    'sorted_idx': sorted_idx,
+                    'reason': f'Error during processing: {str(e)}'
                 })
                 
             # Update progress bar
@@ -145,22 +225,45 @@ def evaluate_deeplabcut_performance(
     print(f"PROCESSING COMPLETE")
     print(f"{'='*60}")
     print(f"Total trials: {total_trials}")
+    print(f"Valid trials found: {len(valid_trials)}")
     print(f"Successfully processed: {len(processed_trials)}")
-    print(f"Skipped trials: {len(skipped_trials)}")
-    print(f"Success rate: {len(processed_trials)/total_trials*100:.1f}%")
+    print(f"Skipped during validation: {len(skipped_trials)}")
+    print(f"Errors during processing: {len(processing_errors)}")
+    print(f"Overall success rate: {len(processed_trials)/total_trials*100:.1f}%")
+    print(f"Images sorted by: {sort_by}")
     print(f"Images saved to: {output_path}")
+    
+    # Print sorting range information
+    if processed_trials:
+        if sort_by == 'cue_angle':
+            min_val = min(t['cue_angle'] for t in processed_trials)
+            max_val = max(t['cue_angle'] for t in processed_trials)
+            print(f"\nCue angle range: {min_val:.1f}° to {max_val:.1f}°")
+        else:
+            min_val = min(t['head_bearing'] for t in processed_trials)
+            max_val = max(t['head_bearing'] for t in processed_trials)
+            print(f"\nHead bearing range: {min_val:.1f}° to {max_val:.1f}°")
     
     # Print details of skipped trials if any
     if skipped_trials:
-        print(f"\nSkipped trials details:")
+        print(f"\nSkipped trials details (first 10):")
         print(f"-" * 40)
-        for skipped in skipped_trials[:10]:  # Show first 10 skipped trials
+        for skipped in skipped_trials[:10]:
             print(f"Trial {skipped['trial_idx']:3d}: {skipped['reason']}")
         if len(skipped_trials) > 10:
             print(f"... and {len(skipped_trials) - 10} more")
     
+    # Print processing errors if any
+    if processing_errors:
+        print(f"\nProcessing errors (first 10):")
+        print(f"-" * 40)
+        for error in processing_errors[:10]:
+            print(f"Trial {error['trial_idx']:3d} (sorted position {error['sorted_idx']}): {error['reason']}")
+        if len(processing_errors) > 10:
+            print(f"... and {len(processing_errors) - 10} more")
+    
     # Save processing summary
-    _save_processing_summary(processed_trials, skipped_trials, output_path)
+    _save_processing_summary(processed_trials, skipped_trials, processing_errors, output_path, sort_by)
 
 
 def _validate_trial_data(trial: Dict) -> bool:
@@ -283,6 +386,14 @@ def _load_video_frame(session, frame_number: int) -> Optional[np.ndarray]:
         cap = cv.VideoCapture(str(video_path))
         if not cap.isOpened():
             return None
+        
+        # Get total frame count for bounds checking
+        total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+        
+        # Ensure frame number is within bounds
+        if frame_number < 0 or frame_number >= total_frames:
+            cap.release()
+            return None
             
         cap.set(cv.CAP_PROP_POS_FRAMES, frame_number)
         ret, frame = cap.read()
@@ -328,7 +439,8 @@ def _create_annotated_image(
     frame: np.ndarray, 
     trial: Dict, 
     session,
-    cue_onset_frame: int
+    cue_onset_frame: int,
+    frame_offset: int = 0  # Add this parameter
 ) -> np.ndarray:
     """
     Create annotated image with all body parts, head angle, and text overlays.
@@ -442,7 +554,8 @@ def _create_annotated_image(
         all_body_parts,
         text_colour,
         body_part_colours,
-        turn_data
+        turn_data,
+        frame_offset
     )
     
     # Add legend for body part colours
@@ -512,7 +625,8 @@ def _add_text_annotations(
     all_body_parts: Optional[Dict],
     text_colour: Tuple[int, int, int],
     body_part_colours: Dict[str, Tuple[int, int, int]],
-    turn_data: Dict
+    turn_data: Dict,
+    frame_offset: int = 0  # Add this parameter
 ) -> None:
     """
     Add text annotations to the frame including all body part likelihoods and angle correction info.
@@ -553,6 +667,11 @@ def _add_text_annotations(
         f"Cue Angle: {cue_presentation_angle:.1f}°",
         f"Head Bearing: {bearing:.1f}°",
     ]
+
+    # Add frame offset information if not zero
+    if frame_offset != 0:
+        offset_text = f"Frame Offset: {'+' if frame_offset > 0 else ''}{frame_offset}"
+        texts.append(offset_text)
     
     # Add angle correction information
     if angle_correction_method != 'none':
@@ -700,9 +819,15 @@ def _add_body_part_legend(
             )
 
 
-def _save_processing_summary(processed_trials: List[Dict], skipped_trials: List[Dict], output_path: Path) -> None:
+def _save_processing_summary(
+    processed_trials: List[Dict], 
+    skipped_trials: List[Dict], 
+    processing_errors: List[Dict],
+    output_path: Path,
+    sort_by: str
+) -> None:
     """
-    Save a summary of processed trials including angle correction statistics.
+    Save a summary of processed trials including sorting method and angle correction statistics.
     
     Parameters:
     -----------
@@ -710,47 +835,67 @@ def _save_processing_summary(processed_trials: List[Dict], skipped_trials: List[
         List of processed trial information
     skipped_trials : List[Dict]
         List of skipped trial information
+    processing_errors : List[Dict]
+        List of processing error information
     output_path : Path
         Output directory path
+    sort_by : str
+        Sorting method used
     """
     summary_file = output_path / "processing_summary.txt"
-    
-    # Count angle corrections in processed trials
-    correction_counts = {
-        'none': 0,
-        'ear_flip_corrected': 0,
-        'spine_based': 0,
-        'ears_too_close_no_spine': 0
-    }
-    
-    # Assuming we have access to the session object to check corrections
-    # This would need to be passed in or stored with processed_trials
     
     with open(summary_file, 'w') as f:
         f.write("DeepLabCut Performance Evaluation Summary\n")
         f.write("=" * 50 + "\n\n")
         
-        total_trials = len(processed_trials) + len(skipped_trials)
+        # Sorting information
+        f.write(f"Images sorted by: {sort_by}\n")
+        if processed_trials:
+            if sort_by == 'cue_angle':
+                min_val = min(t['cue_angle'] for t in processed_trials)
+                max_val = max(t['cue_angle'] for t in processed_trials)
+                f.write(f"Cue angle range: {min_val:.1f}° to {max_val:.1f}°\n\n")
+            else:
+                min_val = min(t['head_bearing'] for t in processed_trials)
+                max_val = max(t['head_bearing'] for t in processed_trials)
+                f.write(f"Head bearing range: {min_val:.1f}° to {max_val:.1f}°\n\n")
+        
+        total_trials = len(processed_trials) + len(skipped_trials) + len(processing_errors)
         f.write(f"Total trials: {total_trials}\n")
         f.write(f"Successfully processed: {len(processed_trials)}\n")
-        f.write(f"Skipped trials: {len(skipped_trials)}\n")
-        f.write(f"Success rate: {len(processed_trials)/total_trials*100:.1f}%\n\n")
+        f.write(f"Skipped during validation: {len(skipped_trials)}\n")
+        f.write(f"Errors during processing: {len(processing_errors)}\n")
+        f.write(f"Overall success rate: {len(processed_trials)/total_trials*100:.1f}%\n\n")
         
-        f.write("Successfully processed trials:\n")
-        f.write("-" * 30 + "\n")
+        f.write("Successfully processed trials (in sorted order):\n")
+        f.write("-" * 50 + "\n")
+        f.write(f"{'Sorted Idx':>10} {'Trial':>6} {'Cue Angle':>10} {'Bearing':>10} {'Filename'}\n")
+        f.write("-" * 50 + "\n")
         
         for trial_info in processed_trials:
             f.write(
-                f"Trial {trial_info['trial_idx']:3d}: "
-                f"Cue angle {trial_info['cue_angle']:6.1f}° - "
+                f"{trial_info['sorted_idx']:10d} "
+                f"{trial_info['trial_idx']:6d} "
+                f"{trial_info['cue_angle']:10.1f}° "
+                f"{trial_info['head_bearing']:10.1f}° "
                 f"{trial_info['filename']}\n"
             )
         
         if skipped_trials:
-            f.write(f"\nSkipped trials:\n")
-            f.write("-" * 20 + "\n")
+            f.write(f"\nSkipped trials during validation:\n")
+            f.write("-" * 30 + "\n")
             for skipped in skipped_trials:
                 f.write(f"Trial {skipped['trial_idx']:3d}: {skipped['reason']}\n")
+                
+        if processing_errors:
+            f.write(f"\nProcessing errors:\n")
+            f.write("-" * 30 + "\n")
+            for error in processing_errors:
+                f.write(
+                    f"Trial {error['trial_idx']:3d} "
+                    f"(sorted position {error['sorted_idx']}): "
+                    f"{error['reason']}\n"
+                )
 
 
 # Example usage
@@ -761,24 +906,22 @@ if __name__ == "__main__":
     from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
     from hex_behav_analysis.utils.Session_nwb import Session
     
-    # model = "DLC_Resnet50_LMDCMar11shuffle1_snapshot_091"
-    # cohort_dir = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/b1"
+    model = "DLC_Resnet50_LMDCMar11shuffle1_snapshot_091"
+    cohort_dir = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment"
     
-    # cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=False, dlc_model_name=model)
-    # test_dir = cohort.get_session("250514_163731_mtao102-3c")
-    # session = Session(test_dir, dlc_model_name=model, recalculate=True)
-
-    cohort_dir = r"/cephfs2/srogers/Behaviour_code/2407_July_WT_cohort/Data"
+    cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=False, dlc_model_name=model, use_existing_cohort_info=True)
+    test_dir = cohort.get_session("250521_133747_mtao106-3b")
+    session = Session(test_dir, dlc_model_name=model, recalculate=True)
     
-    cohort = Cohort_folder(cohort_dir, multi=True, OEAB_legacy=True, dlc_model_name=None)
-    test_dir = cohort.get_session("240725_152746_wtjx261-2b")
-    session = Session(test_dir, dlc_model_name=None, recalculate=True)
-    
+    # Example: Sort by cue angle
     evaluate_deeplabcut_performance(
         session=session,
-        output_directory="/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/111_dlc_evaluation",
-        likelihood_threshold=0
+        output_directory="/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/111_dlc_evaluation",
+        likelihood_threshold=0,
+        sort_by='cue_angle',  # or 'head_bearing'
+        frame_offset=-3
     )
     
-    print("DeepLabCut Performance Evaluation Script")
-    print("Please call evaluate_deeplabcut_performance() with your session object")
+    print("\nDeepLabCut Performance Evaluation Script")
+    print("Usage: evaluate_deeplabcut_performance(session, output_dir, likelihood_threshold, sort_by)")
+    print("sort_by options: 'cue_angle' or 'head_bearing'")

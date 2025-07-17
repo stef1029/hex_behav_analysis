@@ -7,6 +7,7 @@ import numpy as np
 import pickle
 from pynwb import NWBHDF5IO, TimeSeries, ProcessingModule
 import os
+import traceback
 
 from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from hex_behav_analysis.utils.DetectTrials import DetectTrials
@@ -22,9 +23,13 @@ class Session:
             dlc_model_name (str): Specific DLC model name to use. If None, uses default behaviour.
         """
         try:
+            self.session_ID = session_dict.get('session_id')
+        except Exception:
+            raise ValueError("Invalid session dictionary, check that session ID matches what is in loaded cohort folder information.\
+                             (Ranaming of files often causes this issue if all session IDs aren't updated in the rest of the code.)")
+        try:
             self.session_dict = session_dict
             self.session_directory = Path(self.session_dict.get('directory'))
-            self.session_ID = self.session_dict.get('session_id')
             self.dlc_model_name = dlc_model_name  # Store the model name
             print(f"Loading session {self.session_ID}...")
             
@@ -73,7 +78,6 @@ class Session:
 
         except Exception:
             print(f"Error loading session {self.session_ID}")
-            import traceback
             traceback.print_exc()
             pass
 
@@ -207,6 +211,7 @@ class Session:
                 trial["turn_data"] = None
 
 
+
     def find_angles(self, trial, buffer=1):
         """
         Calculate angles for each trial with corrections for ear detection issues.
@@ -234,19 +239,19 @@ class Session:
         - All atan2 calls use -y to account for this
         - Angles are in degrees, with 0° = rightward, 90° = upward
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         trial : dict
-            Trial data containing DLC coordinates with body part positions
-            Must contain 'DLC_data' DataFrame with columns for each body part
+            Trial data containing DLC coordinates with body part positions.
+            Must contain 'DLC_data' DataFrame with columns for each body part.
         buffer : int, default=1
-            Number of frames to average over for position calculations
-            Helps reduce noise in tracking data
+            Number of frames to average over for position calculations.
+            Helps reduce noise in tracking data.
             
-        Returns:
-        --------
+        Returns
+        -------
         dict or None
-            Returns None if insufficient data
+            Returns None if insufficient data.
             Otherwise returns dictionary containing:
             - bearing: float, mouse head angle in degrees (0-360)
             - midpoint: tuple, (x,y) position representing mouse head location
@@ -262,45 +267,54 @@ class Session:
             - ear_distance: float, pixel distance between detected ear positions
             - spine_data_available: bool, whether spine tracking data was found
         """
-        # --- Guard against empty or too-short DLC data ---
+        # Guard against empty or too-short DLC data
         if trial["DLC_data"] is None or len(trial["DLC_data"]) < buffer:
             return None
         
-        # ---- Gather ear coordinates and likelihoods over 'buffer' frames ----
-        left_ear_coords = [
-            (trial["DLC_data"]["left_ear"]["x"].iloc[i],
-            trial["DLC_data"]["left_ear"]["y"].iloc[i])
-            for i in range(buffer)
-        ]
-        left_ear_likelihoods = [
-            trial["DLC_data"]["left_ear"]["likelihood"].iloc[i]
-            for i in range(buffer)
-        ]
+        # Gather ear coordinates and likelihoods over 'buffer' frames
+        left_ear_coords = []
+        left_ear_likelihoods = []
+        right_ear_coords = []
+        right_ear_likelihoods = []
+        
+        # Validate ear data before processing
+        try:
+            for i in range(buffer):
+                left_x = trial["DLC_data"]["left_ear"]["x"].iloc[i]
+                left_y = trial["DLC_data"]["left_ear"]["y"].iloc[i]
+                right_x = trial["DLC_data"]["right_ear"]["x"].iloc[i]
+                right_y = trial["DLC_data"]["right_ear"]["y"].iloc[i]
+                
+                # Check for NaN or infinite values
+                if np.isfinite(left_x) and np.isfinite(left_y):
+                    left_ear_coords.append((left_x, left_y))
+                    left_ear_likelihoods.append(trial["DLC_data"]["left_ear"]["likelihood"].iloc[i])
+                
+                if np.isfinite(right_x) and np.isfinite(right_y):
+                    right_ear_coords.append((right_x, right_y))
+                    right_ear_likelihoods.append(trial["DLC_data"]["right_ear"]["likelihood"].iloc[i])
+        except Exception as e:
+            print(f"Error extracting ear data: {e}")
+            return None
+        
+        # Ensure we have valid ear data
+        if not left_ear_coords or not right_ear_coords:
+            return None
 
-        right_ear_coords = [
-            (trial["DLC_data"]["right_ear"]["x"].iloc[i],
-            trial["DLC_data"]["right_ear"]["y"].iloc[i])
-            for i in range(buffer)
-        ]
-        right_ear_likelihoods = [
-            trial["DLC_data"]["right_ear"]["likelihood"].iloc[i]
-            for i in range(buffer)
-        ]
-
-        # --- Compute average coords and average likelihood for each ear ---
+        # Compute average coords and average likelihood for each ear
         average_left_ear = (
             sum(coord[0] for coord in left_ear_coords) / len(left_ear_coords),
             sum(coord[1] for coord in left_ear_coords) / len(left_ear_coords),
         )
-        avg_left_ear_likelihood = sum(left_ear_likelihoods) / len(left_ear_likelihoods)
+        avg_left_ear_likelihood = sum(left_ear_likelihoods) / len(left_ear_likelihoods) if left_ear_likelihoods else 0
 
         average_right_ear = (
             sum(coord[0] for coord in right_ear_coords) / len(right_ear_coords),
             sum(coord[1] for coord in right_ear_coords) / len(right_ear_coords),
         )
-        avg_right_ear_likelihood = sum(right_ear_likelihoods) / len(right_ear_likelihoods)
+        avg_right_ear_likelihood = sum(right_ear_likelihoods) / len(right_ear_likelihoods) if right_ear_likelihoods else 0
 
-        # --- Check distance between ears ---
+        # Check distance between ears
         ear_distance = math.sqrt(
             (average_right_ear[0] - average_left_ear[0])**2 + 
             (average_right_ear[1] - average_left_ear[1])**2
@@ -309,24 +323,38 @@ class Session:
         minimum_ear_distance = 50  # Minimum distance threshold
         angle_correction_method = "none"  # Track correction method used
         
-        # --- Get spine data for validation/correction ---
+        # Get spine data for validation/correction
         spine_positions = []
         spine_available = True
         
         try:
             for spine_idx in range(1, 5):  # spine_1 to spine_4
-                spine_name = f"spine_{spine_idx}"  # With underscore
+                spine_name = f"spine_{spine_idx}"
                 if spine_name in trial["DLC_data"].columns.levels[0]:
-                    spine_x = sum(trial["DLC_data"][spine_name]["x"].iloc[i] for i in range(buffer)) / buffer
-                    spine_y = sum(trial["DLC_data"][spine_name]["y"].iloc[i] for i in range(buffer)) / buffer
-                    spine_positions.append((spine_x, spine_y))
+                    spine_x_vals = []
+                    spine_y_vals = []
+                    for i in range(buffer):
+                        x_val = trial["DLC_data"][spine_name]["x"].iloc[i]
+                        y_val = trial["DLC_data"][spine_name]["y"].iloc[i]
+                        if np.isfinite(x_val) and np.isfinite(y_val):
+                            spine_x_vals.append(x_val)
+                            spine_y_vals.append(y_val)
+                    
+                    if spine_x_vals and spine_y_vals:
+                        spine_x = sum(spine_x_vals) / len(spine_x_vals)
+                        spine_y = sum(spine_y_vals) / len(spine_y_vals)
+                        spine_positions.append((spine_x, spine_y))
+                    else:
+                        spine_available = False
+                        break
                 else:
                     spine_available = False
                     break
-        except:
+        except Exception as e:
+            print(f"Error extracting spine data: {e}")
             spine_available = False
         
-        # --- Calculate head bearing ---
+        # Calculate head bearing
         if ear_distance >= minimum_ear_distance:
             # Use ear-based calculation
             # Vector from left ear to right ear
@@ -334,11 +362,11 @@ class Session:
             ear_vector_y = average_right_ear[1] - average_left_ear[1]
             
             # The head direction is perpendicular to the ear vector
-            # Rotate ear vector by 90 degrees to get forward direction
-            # For a 90 degree rotation: (x,y) -> (-y,x) or (y,-x) depending on direction
-            # Since y is flipped in video coords, we want the mouse to face "up" the screen when heading is 0
-            head_vector_x = -ear_vector_y  # Perpendicular to ear line
-            head_vector_y = ear_vector_x
+            # For a mouse facing forward, if we go from left ear to right ear,
+            # the forward direction is 90 degrees CLOCKWISE from that vector
+            # In screen coordinates (y flipped), this becomes:
+            head_vector_x = ear_vector_y   # Note: changed from -ear_vector_y
+            head_vector_y = -ear_vector_x  # Note: changed from ear_vector_x
             
             # Calculate angle using atan2 with -y for video coordinates
             theta_rad = math.atan2(-head_vector_y, head_vector_x)
@@ -347,47 +375,41 @@ class Session:
             
             # Validate with spine data if available
             if spine_available and len(spine_positions) >= 2:
-                # Find best fit line through spine points for validation
-                spine_x = [pos[0] for pos in spine_positions]
-                spine_y = [pos[1] for pos in spine_positions]
+                # Calculate spine direction vector
+                spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]  # spine_1 to spine_4
+                spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
                 
-                try:
-                    coefficients = np.polyfit(spine_x, spine_y, 1)
-                    slope = coefficients[0]
-                    
-                    # Determine spine angle from best fit line
-                    if spine_positions[0][0] > spine_positions[-1][0]:  # spine_1.x > spine_4.x
-                        spine_angle_rad = math.atan(-slope)
-                    else:
-                        spine_angle_rad = math.atan(-slope) + math.pi
-                        
-                    spine_angle_deg = math.degrees(spine_angle_rad) % 360
-                    
-                except:
-                    # Fallback for vertical lines or polyfit failures
-                    if abs(spine_x[0] - spine_x[-1]) < 0.1:  # Nearly vertical
-                        if spine_positions[0][1] < spine_positions[-1][1]:  # head is up
-                            spine_angle_deg = 90
-                        else:
-                            spine_angle_deg = 270
-                    else:
-                        # Simple vector calculation
-                        spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
-                        spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
-                        spine_angle_rad = math.atan2(-spine_vector_y, spine_vector_x)
-                        spine_angle_deg = math.degrees(spine_angle_rad) % 360
+                # Calculate angle of spine direction
+                spine_angle_rad = math.atan2(-spine_vector_y, spine_vector_x)
+                spine_angle_deg = math.degrees(spine_angle_rad) % 360
                 
                 # Check angle difference
                 angle_diff = abs(theta_deg - spine_angle_deg)
                 if angle_diff > 180:
                     angle_diff = 360 - angle_diff
                 
-                # If angles differ by more than 90 degrees, ears are likely flipped
+                # Only flip if angle difference is large AND majority of spine points suggest flip
                 if angle_diff > 90:
-                    # Rotate by 180 degrees
-                    theta_deg = (theta_deg + 180) % 360
-                    angle_correction_method = "ear_flip_corrected"
-            
+                    # Check if majority of spine points are on the "wrong" side
+                    # Calculate which side of the ear line each spine point is on
+                    flip_votes = 0
+                    for spine_pos in spine_positions:
+                        # Vector from left ear to spine point
+                        to_spine_x = spine_pos[0] - average_left_ear[0]
+                        to_spine_y = spine_pos[1] - average_left_ear[1]
+                        
+                        # Cross product to determine which side of ear line
+                        cross_product = ear_vector_x * to_spine_y - ear_vector_y * to_spine_x
+                        
+                        # If spine point is on the "back" side (negative cross product), vote for flip
+                        if cross_product < 0:
+                            flip_votes += 1
+                    
+                    # Only flip if majority of spine points vote for it
+                    if flip_votes > len(spine_positions) / 2:
+                        theta_deg = (theta_deg + 180) % 360
+                        angle_correction_method = "ear_flip_corrected"
+                    
         elif ear_distance < minimum_ear_distance and spine_available and len(spine_positions) >= 2:
             # Ears too close - use spine-based calculation
             angle_correction_method = "spine_based"
@@ -396,31 +418,59 @@ class Session:
             spine_x = [pos[0] for pos in spine_positions]
             spine_y = [pos[1] for pos in spine_positions]
             
-            # Use numpy polyfit to find line of best fit (degree 1 = linear)
-            # Returns coefficients [slope, intercept] for y = slope*x + intercept
-            try:
-                coefficients = np.polyfit(spine_x, spine_y, 1)
-                slope = coefficients[0]
-                
-                # The angle of the line is atan(slope), but we need to determine direction
-                # Check which end is the head by comparing spine_1 and spine_4 positions
-                if spine_positions[0][0] > spine_positions[-1][0]:  # spine_1.x > spine_4.x
-                    # Head is to the right of tail
-                    theta_rad = math.atan(-slope)  # Negative because of flipped y
-                else:
-                    # Head is to the left of tail - rotate by 180°
-                    theta_rad = math.atan(-slope) + math.pi
-                    
-            except:
-                # Fallback if polyfit fails (e.g., vertical line)
-                # Check if line is nearly vertical
+            # Validate spine data before polyfit
+            if len(set(spine_x)) < 2:  # All x values are the same
+                # Handle vertical line case
                 if abs(spine_x[0] - spine_x[-1]) < 0.1:  # Nearly vertical
                     if spine_positions[0][1] < spine_positions[-1][1]:  # spine_1.y < spine_4.y (head is up)
                         theta_rad = math.pi / 2  # 90 degrees
                     else:
                         theta_rad = -math.pi / 2  # 270 degrees
                 else:
-                    # Use simple vector calculation as fallback
+                    # Fallback calculation
+                    spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
+                    spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
+                    theta_rad = math.atan2(-spine_vector_y, spine_vector_x)
+            else:
+                # Use numpy polyfit to find line of best fit
+                try:
+                    # Filter out any remaining NaN values
+                    valid_points = [(x, y) for x, y in zip(spine_x, spine_y) 
+                                if np.isfinite(x) and np.isfinite(y)]
+                    
+                    if len(valid_points) >= 2:
+                        spine_x_clean = [p[0] for p in valid_points]
+                        spine_y_clean = [p[1] for p in valid_points]
+                        
+                        # Check for extreme values that might cause numerical issues
+                        x_range = max(spine_x_clean) - min(spine_x_clean)
+                        y_range = max(spine_y_clean) - min(spine_y_clean)
+                        
+                        if x_range > 1e-6 and not any(abs(x) > 1e6 for x in spine_x_clean):
+                            coefficients = np.polyfit(spine_x_clean, spine_y_clean, 1)
+                            slope = coefficients[0]
+                            
+                            # Determine direction based on spine_1 to spine_4
+                            if spine_positions[0][0] > spine_positions[-1][0]:  # spine_1.x > spine_4.x
+                                # Head is to the right of tail
+                                theta_rad = math.atan(-slope)
+                            else:
+                                # Head is to the left of tail - rotate by 180°
+                                theta_rad = math.atan(-slope) + math.pi
+                        else:
+                            # Fallback for extreme or degenerate cases
+                            spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
+                            spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
+                            theta_rad = math.atan2(-spine_vector_y, spine_vector_x)
+                    else:
+                        # Not enough valid points
+                        spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
+                        spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
+                        theta_rad = math.atan2(-spine_vector_y, spine_vector_x)
+                        
+                except Exception as e:
+                    print(f"Polyfit error: {e}")
+                    # Fallback calculation
                     spine_vector_x = spine_positions[0][0] - spine_positions[-1][0]
                     spine_vector_y = spine_positions[0][1] - spine_positions[-1][1]
                     theta_rad = math.atan2(-spine_vector_y, spine_vector_x)
@@ -433,18 +483,18 @@ class Session:
             if ear_distance < minimum_ear_distance:
                 angle_correction_method = "ears_too_close_no_spine"
             
-            # Same calculation as above
+            # Same calculation as corrected ear-based above
             ear_vector_x = average_right_ear[0] - average_left_ear[0]
             ear_vector_y = average_right_ear[1] - average_left_ear[1]
             
-            head_vector_x = -ear_vector_y
-            head_vector_y = ear_vector_x
+            head_vector_x = ear_vector_y
+            head_vector_y = -ear_vector_x
             
             theta_rad = math.atan2(-head_vector_y, head_vector_x)
             theta_deg = math.degrees(theta_rad)
             theta_deg = theta_deg % 360
         
-        # --- Calculate midpoint ---
+        # Calculate midpoint
         if angle_correction_method == "spine_based" and spine_available and len(spine_positions) >= 1:
             # Use spine_1 position as reference point when using spine-based angle
             midpoint_x = spine_positions[0][0]
@@ -466,8 +516,7 @@ class Session:
         
         midpoint = (new_midpoint_x, new_midpoint_y)
         
-        # -------- GET CUE PRESENTATION ANGLE FROM MOUSE HEADING: ------------------------
-        
+        # Get cue presentation angle from mouse heading
         if self.rig_id == 1:
             self.port_angles = [64, 124, 184, 244, 304, 364] 
         elif self.rig_id == 2:
@@ -531,7 +580,7 @@ class Session:
             elif port_touched_angle <= -180:
                 port_touched_angle += 360
 
-        # -------- RETURN DATA: ------------------------
+        # Return data
         angle_data = {
             "bearing": theta_deg,
             "midpoint": midpoint,
@@ -545,7 +594,6 @@ class Session:
         }
 
         return angle_data
-
         
     def draw_LEDs(self, output_path, start=0, end=None):
         if self.rig_id == 1:
@@ -943,59 +991,353 @@ class Session:
         
     def calibrate_port_angles(self, calibration_offset=0, output_file_path="test_output"):
         """
-        Return a list of 6 angles, each representing the angle of a port from the platform centre.
-        calibration_offset is used to rotate the lines in the image around until they line up with the ports.
-        output_file_path is the path to save the image with the angles drawn on it.
-        """
-        # grab first frame from trial 1:
-        frame_no = self.trials[1]["video_frames"][0]
-        port_angles = [0, 60, 120, 180, 240, 300]
-
-        # open video and grab frame:
-        cap = cv.VideoCapture(str(self.session_video))
-        if not cap.isOpened():
-            print(f"Error opening video file {self.session_video}")
-            return
-
-        dims = (int(cap.get(cv.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv.CAP_PROP_FRAME_HEIGHT)))
-        cap.set(cv.CAP_PROP_POS_FRAMES, frame_no)
-        ret, frame = cap.read()
+        Calculate and visualise the angles of 6 ports from the platform centre.
         
-        if not ret:
-            print(f"Failed to grab frame at position {frame_no}")
-            cap.release()
-            return
+        Parameters:
+        -----------
+        calibration_offset : float
+            Rotation offset in degrees to align the drawn lines with actual ports
+        output_file_path : str
+            Directory path where the output image will be saved
+            
+        Returns:
+        --------
+        list
+            List of 6 calibrated angles (in degrees) for each port
+        """
+        # Initialise port angles (0° is rightward, angles increase anticlockwise)
+        port_angles = [0, 60, 120, 180, 240, 300]
+        
+        # Extract first frame from trial 1
+        frame_number = self.trials[1]["video_frames"][0]
+        
+        # Open video capture
+        video_capture = cv.VideoCapture(str(self.session_video))
+        if not video_capture.isOpened():
+            print(f"Error: Unable to open video file {self.session_video}")
+            return None
+        
+        # Get video dimensions
+        frame_width = int(video_capture.get(cv.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(video_capture.get(cv.CAP_PROP_FRAME_HEIGHT))
+        centre_x = frame_width // 2
+        centre_y = frame_height // 2
+        
+        # Navigate to specified frame
+        video_capture.set(cv.CAP_PROP_POS_FRAMES, frame_number)
+        success, frame = video_capture.read()
+        
+        if not success:
+            print(f"Error: Failed to read frame at position {frame_number}")
+            video_capture.release()
+            return None
+        
+        # Draw lines from centre to each port position
+        line_length = 400  # Length of indicator lines in pixels
+        for port_index, angle in enumerate(port_angles):
+            # Calculate line endpoint coordinates
+            adjusted_angle = angle + calibration_offset
+            end_x = int(centre_x + line_length * math.cos(math.radians(adjusted_angle)))
+            end_y = int(centre_y - line_length * math.sin(math.radians(adjusted_angle)))
+            
+            # Draw line from centre to port direction
+            cv.line(frame, (centre_x, centre_y), (end_x, end_y), (0, 255, 0), 2)
+            
+            # Label each line with port number (1-indexed)
+            port_label = str(port_index + 1)
+            cv.putText(frame, port_label, (end_x, end_y), 
+                    cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+        
+        # Save annotated frame to file
+        output_directory = Path(output_file_path)
+        output_directory.mkdir(parents=True, exist_ok=True)
+        output_filepath = output_directory / 'angles.jpg'
+        cv.imwrite(str(output_filepath), frame)
+        
+        # Display image in notebook using matplotlib
+        import matplotlib.pyplot as plt
+        # Convert BGR to RGB for matplotlib
+        frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        
+        # Create figure and display
+        plt.figure(figsize=(10, 8))
+        plt.imshow(frame_rgb)
+        plt.title(f'Port Calibration (Offset: {calibration_offset}°)')
+        plt.axis('off')
+        plt.show()
+        
+        # Clean up resources
+        video_capture.release()
+        
+        # Calculate and return calibrated angles
+        calibrated_angles = [(angle + calibration_offset) % 360 for angle in port_angles]
+        print(f"Calibrated angles: {calibrated_angles}")
+        
+        return calibrated_angles
 
-        # for each angle in port_angles, draw a line from the centre.
-        for angle in port_angles:
-            x2 = int(dims[0]/2 + 400 * math.cos(math.radians(angle + calibration_offset)))
-            y2 = int(dims[1]/2 - 400 * math.sin(math.radians(angle + calibration_offset)))
-            cv.line(frame, (int(dims[0]/2), int(dims[1]/2)), (x2, y2), (0, 255, 0), 2)
-
-            # at end of line, write index of port
-            cv.putText(frame, str(port_angles.index(angle)+1), (x2, y2), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
-
-        # save frame to file
-        filename = Path(output_file_path)  # Ensure the directory exists
-        cv.imwrite(filename/'angles.jpg', frame)
-
-        cap.release()  # release the video capture object
-        print([angle + calibration_offset for angle in port_angles])  # prints a list to be copied to the main function
-
-
-
-
+    def print_trial_summary(self, output_file=None, include_angle_details=True):
+        """
+        Generate a comprehensive human-readable summary of all trials in the session.
+        
+        Parameters:
+        -----------
+        output_file : str or Path, optional
+            If provided, writes the summary to this file instead of printing to console
+        include_angle_details : bool, default=True
+            Whether to include detailed angle analysis information
+            
+        Returns:
+        --------
+        str
+            The formatted summary string
+        """
+        summary_lines = []
+        
+        # Session header
+        summary_lines.append("=" * 80)
+        summary_lines.append(f"SESSION SUMMARY: {self.session_ID}")
+        summary_lines.append("=" * 80)
+        summary_lines.append(f"Session Directory: {self.session_directory}")
+        summary_lines.append(f"Phase: {self.phase}")
+        summary_lines.append(f"Rig ID: {self.rig_id}")
+        summary_lines.append(f"Last Timestamp: {self.last_timestamp:.2f}s")
+        summary_lines.append(f"Total Trials: {len(self.trials)}")
+        summary_lines.append(f"Analysis Pickle: {self.analysis_pickle_path}")
+        
+        if hasattr(self, 'session_video') and self.session_video:
+            summary_lines.append(f"Video File: {self.session_video.name}")
+            if hasattr(self, 'video_timestamps') and self.video_timestamps is not None:
+                summary_lines.append(f"Video Duration: {len(self.video_timestamps)} frames")
+        
+        summary_lines.append("")
+        
+        # Trial-by-trial breakdown
+        for i, trial in enumerate(self.trials):
+            summary_lines.append("-" * 60)
+            summary_lines.append(f"TRIAL {i + 1}")
+            summary_lines.append("-" * 60)
+            
+            # Basic trial information
+            summary_lines.append(f"Trial Number: {trial.get('trial_no', 'N/A')}")
+            summary_lines.append(f"Phase: {trial.get('phase', 'N/A')}")
+            summary_lines.append(f"Correct Port: {trial.get('correct_port', 'N/A')}")
+            summary_lines.append(f"Outcome: {trial.get('outcome', 'N/A')}")
+            
+            # Timing information
+            if 'cue_start' in trial:
+                summary_lines.append(f"Cue Start: {trial['cue_start']:.3f}s")
+            if 'cue_end' in trial:
+                summary_lines.append(f"Cue End: {trial['cue_end']:.3f}s")
+            if 'start_time' in trial:
+                summary_lines.append(f"Start Time: {trial['start_time']:.3f}s")
+            if 'end_time' in trial:
+                summary_lines.append(f"End Time: {trial['end_time']:.3f}s")
+                duration = trial['end_time'] - trial.get('start_time', trial.get('cue_start', 0))
+                summary_lines.append(f"Duration: {duration:.3f}s")
+            
+            # Sensor information
+            if 'next_sensor' in trial and trial['next_sensor']:
+                sensor_info = trial['next_sensor']
+                summary_lines.append(f"Sensor Response:")
+                for key, value in sensor_info.items():
+                    if key == 'sensor_touched':
+                        summary_lines.append(f"  Port Touched: {value}")
+                    elif key == 'sensor_start':
+                        summary_lines.append(f"  Response Time: {value:.3f}s")
+                    elif key == 'sensor_end':
+                        summary_lines.append(f"  Response End: {value:.3f}s")
+                    else:
+                        summary_lines.append(f"  {key.replace('_', ' ').title()}: {value}")
+            else:
+                summary_lines.append("Sensor Response: No sensor interaction")
+            
+            # Reward information
+            if 'reward_touch' in trial and trial['reward_touch']:
+                reward_info = trial['reward_touch']
+                summary_lines.append(f"Reward Touch: Present")
+                if 'start' in reward_info:
+                    summary_lines.append(f"  Reward Start: {reward_info['start']:.3f}s")
+                if 'end' in reward_info:
+                    summary_lines.append(f"  Reward End: {reward_info['end']:.3f}s")
+            else:
+                summary_lines.append("Reward Touch: None")
+            
+            # Video frame information (condensed)
+            if 'video_frames' in trial and trial['video_frames']:
+                frames = trial['video_frames']
+                summary_lines.append(f"Video Frames: {len(frames)} frames (#{frames[0]} to #{frames[-1]})")
+            else:
+                summary_lines.append("Video Frames: No video data")
+            
+            # DLC data information (condensed)
+            if 'DLC_data' in trial and trial['DLC_data'] is not None:
+                dlc_data = trial['DLC_data']
+                summary_lines.append(f"DLC Data: {len(dlc_data)} rows × {len(dlc_data.columns)} columns")
+                
+                # Get body parts tracked
+                if hasattr(dlc_data.columns, 'levels') and len(dlc_data.columns.levels) > 0:
+                    body_parts = dlc_data.columns.levels[0].tolist()
+                    summary_lines.append(f"  Body Parts: {', '.join(body_parts)}")
+                
+                # Show data quality summary
+                if 'timestamps' in dlc_data.columns:
+                    time_span = dlc_data['timestamps'].max() - dlc_data['timestamps'].min()
+                    summary_lines.append(f"  Time Span: {time_span:.3f}s")
+                
+                # Show likelihood statistics for key body parts
+                key_parts = ['left_ear', 'right_ear', 'nose'] if hasattr(dlc_data.columns, 'levels') else []
+                for part in key_parts:
+                    if part in dlc_data.columns.levels[0]:
+                        likelihood_col = (part, 'likelihood')
+                        if likelihood_col in dlc_data.columns:
+                            mean_likelihood = dlc_data[likelihood_col].mean()
+                            summary_lines.append(f"  {part.replace('_', ' ').title()} Likelihood: {mean_likelihood:.2f}")
+            else:
+                summary_lines.append("DLC Data: No tracking data")
+            
+            # Angle analysis information (if available and requested)
+            if include_angle_details and 'turn_data' in trial and trial['turn_data']:
+                angle_data = trial['turn_data']
+                summary_lines.append(f"Angle Analysis:")
+                summary_lines.append(f"  Mouse Bearing: {angle_data.get('bearing', 'N/A'):.1f}°")
+                summary_lines.append(f"  Cue Presentation Angle: {angle_data.get('cue_presentation_angle', 'N/A'):.1f}°")
+                
+                if angle_data.get('port_touched_angle') is not None:
+                    summary_lines.append(f"  Port Touched Angle: {angle_data['port_touched_angle']:.1f}°")
+                
+                summary_lines.append(f"  Correction Method: {angle_data.get('angle_correction_method', 'N/A')}")
+                summary_lines.append(f"  Ear Distance: {angle_data.get('ear_distance', 'N/A'):.1f} pixels")
+                summary_lines.append(f"  Left Ear Likelihood: {angle_data.get('left_ear_likelihood', 'N/A'):.2f}")
+                summary_lines.append(f"  Right Ear Likelihood: {angle_data.get('right_ear_likelihood', 'N/A'):.2f}")
+                summary_lines.append(f"  Spine Data Available: {angle_data.get('spine_data_available', 'N/A')}")
+            elif include_angle_details:
+                summary_lines.append("Angle Analysis: No angle data")
+            
+            # Additional trial-specific fields
+            other_fields = []
+            skip_fields = {'trial_no', 'phase', 'correct_port', 'outcome', 'cue_start', 'cue_end', 
+                        'start_time', 'end_time', 'next_sensor', 'reward_touch', 'video_frames', 
+                        'DLC_data', 'turn_data', 'start', 'next_sensor_time'}
+            
+            for key, value in trial.items():
+                if key not in skip_fields:
+                    if isinstance(value, (list, dict, np.ndarray)):
+                        if isinstance(value, list):
+                            other_fields.append(f"{key.replace('_', ' ').title()}: List with {len(value)} items")
+                        elif isinstance(value, dict):
+                            other_fields.append(f"{key.replace('_', ' ').title()}: Dict with {len(value)} keys")
+                        else:
+                            other_fields.append(f"{key.replace('_', ' ').title()}: Array {value.shape}")
+                    else:
+                        other_fields.append(f"{key.replace('_', ' ').title()}: {value}")
+            
+            if other_fields:
+                summary_lines.append("Other Information:")
+                for field in other_fields:
+                    summary_lines.append(f"  {field}")
+            
+            summary_lines.append("")  # Empty line between trials
+        
+        # Summary statistics
+        summary_lines.append("=" * 80)
+        summary_lines.append("SUMMARY STATISTICS")
+        summary_lines.append("=" * 80)
+        
+        # Count outcomes
+        outcomes = [trial.get('outcome', 'Unknown') for trial in self.trials]
+        outcome_counts = {}
+        for outcome in outcomes:
+            outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+        
+        summary_lines.append("Trial Outcomes:")
+        for outcome, count in outcome_counts.items():
+            percentage = (count / len(self.trials)) * 100
+            summary_lines.append(f"  {outcome}: {count} ({percentage:.1f}%)")
+        
+        # Count correct ports
+        correct_ports = [trial.get('correct_port', 'Unknown') for trial in self.trials]
+        port_counts = {}
+        for port in correct_ports:
+            port_counts[port] = port_counts.get(port, 0) + 1
+        
+        summary_lines.append("Correct Port Distribution:")
+        for port, count in sorted(port_counts.items()):
+            percentage = (count / len(self.trials)) * 100
+            summary_lines.append(f"  Port {port}: {count} ({percentage:.1f}%)")
+        
+        # Timing statistics
+        durations = []
+        for trial in self.trials:
+            if 'start_time' in trial and 'end_time' in trial:
+                duration = trial['end_time'] - trial['start_time']
+                durations.append(duration)
+            elif 'cue_start' in trial and 'end_time' in trial:
+                duration = trial['end_time'] - trial['cue_start']
+                durations.append(duration)
+        
+        if durations:
+            summary_lines.append("Trial Duration Statistics:")
+            summary_lines.append(f"  Mean: {np.mean(durations):.2f}s")
+            summary_lines.append(f"  Median: {np.median(durations):.2f}s")
+            summary_lines.append(f"  Min: {np.min(durations):.2f}s")
+            summary_lines.append(f"  Max: {np.max(durations):.2f}s")
+            summary_lines.append(f"  Standard Deviation: {np.std(durations):.2f}s")
+        
+        # Angle analysis summary (if available)
+        if include_angle_details:
+            angle_methods = []
+            cue_angles = []
+            for trial in self.trials:
+                if 'turn_data' in trial and trial['turn_data']:
+                    angle_data = trial['turn_data']
+                    if 'angle_correction_method' in angle_data:
+                        angle_methods.append(angle_data['angle_correction_method'])
+                    if 'cue_presentation_angle' in angle_data:
+                        cue_angles.append(angle_data['cue_presentation_angle'])
+            
+            if angle_methods:
+                method_counts = {}
+                for method in angle_methods:
+                    method_counts[method] = method_counts.get(method, 0) + 1
+                
+                summary_lines.append("Angle Correction Methods:")
+                for method, count in method_counts.items():
+                    percentage = (count / len(angle_methods)) * 100
+                    summary_lines.append(f"  {method}: {count} ({percentage:.1f}%)")
+            
+            if cue_angles:
+                summary_lines.append("Cue Presentation Angles:")
+                summary_lines.append(f"  Mean: {np.mean(cue_angles):.1f}°")
+                summary_lines.append(f"  Median: {np.median(cue_angles):.1f}°")
+                summary_lines.append(f"  Standard Deviation: {np.std(cue_angles):.1f}°")
+        
+        summary_lines.append("=" * 80)
+        
+        # Join all lines
+        summary_text = "\n".join(summary_lines)
+        
+        # Output to file or console
+        if output_file:
+            output_path = Path(output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w') as f:
+                f.write(summary_text)
+            print(f"Trial summary saved to: {output_path}")
+        else:
+            print(summary_text)
+        
+        return summary_text
 
 def main():
 
-    cohort = Cohort_folder(r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ", multi=True, OEAB_legacy=False)
+    cohort = Cohort_folder(r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment", multi=True, OEAB_legacy=False, use_existing_cohort_info=True)
 
-    test_dir = cohort.get_session("241017_151132_mtao89-1e")
+    test_dir = cohort.get_session("250516_130123_mtao101-3c")
     # test_dir = cohort.get_session("240323_164315")
 
     session = Session(test_dir)
 
-    # session.calibrate_port_angles()
+    session.print_trial_summary('/lmb/home/srogers/Dev/projects/hex_behav_analysis/temp_output/session_summary.txt')
 
 
 

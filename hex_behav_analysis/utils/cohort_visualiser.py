@@ -349,14 +349,14 @@ def main():
     Example usage of the CohortDateOrganizer class.
     """
     # Use your actual cohort directory path
-    test_dir = Path(r"/cephfs2/dwelch/Behaviour/2501_Lynn_EXCITE/Experiment")
+    test_dir = Path(r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment")
     
     # Initialize the organizer
     organizer = CohortDateOrganizer(
         test_dir,
         multi=True,
         portable_data=True,
-        use_existing_cohort_info=True,
+        use_existing_cohort_info=False,
         plot=False
     )
     

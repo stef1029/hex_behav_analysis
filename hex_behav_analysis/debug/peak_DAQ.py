@@ -69,7 +69,71 @@ class DAQViewer:
             for channel in channel_group:
                 self.channel_data[channel] = channel_group[channel][:]
 
-    def plot_channel_data(self, channels, start=0, end=None, save=False, show=True, use_timestamps=True, web_display=False):
+    def calculate_pulse_frequency(self, data, timestamps=None, threshold=0.5, window_size_seconds=1.0, sample_rate=None):
+        """
+        Calculate the frequency of pulses over time using a sliding window.
+        
+        Args:
+            data (np.array): The signal data
+            timestamps (np.array or None): Time values for each sample. If None, uses sample indices
+            threshold (float): Threshold value for pulse detection (default: 0.5)
+            window_size_seconds (float): Size of the sliding window in seconds (default: 1.0)
+            sample_rate (float or None): Sample rate in Hz. Required if timestamps is None
+        
+        Returns:
+            tuple: (time_points, frequencies) - Arrays of time points and corresponding frequencies
+        """
+        # Detect pulse edges (rising edges where signal crosses threshold)
+        above_threshold = data >= threshold
+        pulse_edges = np.diff(above_threshold.astype(int))
+        pulse_indices = np.where(pulse_edges == 1)[0] + 1  # +1 because diff reduces length by 1
+        
+        if len(pulse_indices) == 0:
+            # No pulses detected
+            if timestamps is not None:
+                return np.array([timestamps[0], timestamps[-1]]), np.array([0, 0])
+            else:
+                return np.array([0, len(data) - 1]), np.array([0, 0])
+        
+        # Determine time values for pulses
+        if timestamps is not None:
+            pulse_times = timestamps[pulse_indices]
+            total_duration = timestamps[-1] - timestamps[0]
+            time_step = np.median(np.diff(timestamps))  # Estimate time step from timestamps
+        else:
+            if sample_rate is None:
+                # Assume a default sample rate if not provided
+                sample_rate = 1000.0  # 1 kHz default
+                print(f"Warning: No timestamps or sample rate provided. Assuming {sample_rate} Hz.")
+            pulse_times = pulse_indices / sample_rate
+            total_duration = len(data) / sample_rate
+            time_step = 1.0 / sample_rate
+        
+        # Calculate window size in samples
+        window_samples = int(window_size_seconds / time_step)
+        
+        # Create time points for frequency calculation
+        if timestamps is not None:
+            time_points = np.arange(timestamps[0], timestamps[-1], window_size_seconds / 2)
+        else:
+            time_points = np.arange(0, total_duration, window_size_seconds / 2)
+        
+        # Calculate frequency at each time point
+        frequencies = []
+        half_window = window_size_seconds / 2
+        
+        for t in time_points:
+            # Count pulses within the window
+            pulses_in_window = np.sum((pulse_times >= t - half_window) & (pulse_times < t + half_window))
+            # Convert to frequency (pulses per second)
+            frequency = pulses_in_window / window_size_seconds
+            frequencies.append(frequency)
+        
+        return time_points, np.array(frequencies)
+
+    def plot_channel_data(self, channels, start=0, end=None, save=False, show=True, use_timestamps=True, 
+                         web_display=False, plot_frequency=False, frequency_threshold=0.5, 
+                         frequency_window_size=1.0):
         """
         Plot data for specified channel(s) between start and end indices.
         
@@ -81,6 +145,9 @@ class DAQViewer:
             show (bool): Whether to display the plot
             use_timestamps (bool): Whether to use timestamps (if available) or sample indices
             web_display (bool): Whether to display the plot in a web browser on localhost
+            plot_frequency (bool): Whether to plot pulse frequency below each channel (default: False)
+            frequency_threshold (float): Threshold for pulse detection (default: 0.5)
+            frequency_window_size (float): Window size in seconds for frequency calculation (default: 1.0)
         
         Returns:
             None
@@ -114,12 +181,16 @@ class DAQViewer:
             import matplotlib.pyplot as plt
             plt.rcParams['webagg.open_in_browser'] = False
             
-        # Create figure with subplots
+        # Determine number of subplots needed
         num_channels = len(channels)
-        fig, axes = plt.subplots(num_channels, 1, figsize=(12, 3 * num_channels))
+        subplots_per_channel = 2 if plot_frequency else 1
+        total_subplots = num_channels * subplots_per_channel
+        
+        # Create figure with subplots
+        fig, axes = plt.subplots(total_subplots, 1, figsize=(12, 3 * total_subplots))
         
         # Handle single subplot case
-        if num_channels == 1:
+        if total_subplots == 1:
             axes = [axes]
         
         # Determine x-axis values
@@ -131,28 +202,80 @@ class DAQViewer:
             x_label = "Sample index"
         
         # Plot each channel
-        for idx, (ax, channel) in enumerate(zip(axes, channels)):
+        for channel_idx, channel in enumerate(channels):
+            # Calculate subplot indices
+            signal_ax_idx = channel_idx * subplots_per_channel
+            
             # Extract the data for the given channel and range
             data_to_plot = self.channel_data[channel][start:end]
             
-            # Plot the data
-            ax.plot(x_values, data_to_plot, label=channel)
-            ax.set_ylabel('Signal')
-            ax.legend(loc='upper right')
-            ax.grid(True, alpha=0.3)
+            # Plot the signal data
+            axes[signal_ax_idx].plot(x_values, data_to_plot, label=channel)
+            axes[signal_ax_idx].set_ylabel('Signal')
+            axes[signal_ax_idx].legend(loc='upper right')
+            axes[signal_ax_idx].grid(True, alpha=0.3)
             
-            # Only show x-label for bottom subplot
-            if idx == num_channels - 1:
-                ax.set_xlabel(x_label)
-            else:
-                ax.set_xticklabels([])
+            # Add threshold line if plotting frequency
+            if plot_frequency:
+                axes[signal_ax_idx].axhline(y=frequency_threshold, color='r', linestyle='--', 
+                                          alpha=0.5, label=f'Threshold ({frequency_threshold})')
+            
+            # Hide x-axis labels except for the last subplot
+            if not (channel_idx == num_channels - 1 and not plot_frequency):
+                axes[signal_ax_idx].set_xticklabels([])
+            
+            # Plot frequency if requested
+            if plot_frequency:
+                freq_ax_idx = signal_ax_idx + 1
+                
+                # Calculate frequency over time
+                if use_timestamps and hasattr(self, 'timestamps') and self.timestamps is not None:
+                    freq_time, frequencies = self.calculate_pulse_frequency(
+                        data_to_plot, 
+                        timestamps=self.timestamps[start:end],
+                        threshold=frequency_threshold,
+                        window_size_seconds=frequency_window_size
+                    )
+                else:
+                    # Estimate sample rate from timestamps if available
+                    sample_rate = None
+                    if hasattr(self, 'timestamps') and self.timestamps is not None:
+                        time_diffs = np.diff(self.timestamps)
+                        sample_rate = 1.0 / np.median(time_diffs)
+                    
+                    freq_time, frequencies = self.calculate_pulse_frequency(
+                        data_to_plot,
+                        timestamps=None,
+                        threshold=frequency_threshold,
+                        window_size_seconds=frequency_window_size,
+                        sample_rate=sample_rate
+                    )
+                    # Adjust freq_time to match the start index
+                    freq_time = freq_time + start
+                
+                # Plot frequency
+                axes[freq_ax_idx].plot(freq_time, frequencies, color='green', linewidth=2)
+                axes[freq_ax_idx].set_ylabel('Frequency (Hz)')
+                axes[freq_ax_idx].grid(True, alpha=0.3)
+                axes[freq_ax_idx].set_ylim(bottom=0)  # Frequency cannot be negative
+                
+                # Only show x-label for the last subplot
+                if channel_idx == num_channels - 1:
+                    axes[freq_ax_idx].set_xlabel(x_label)
+                else:
+                    axes[freq_ax_idx].set_xticklabels([])
         
         # Add title
         if num_channels == 1:
-            plt.suptitle(f"Data for Channel '{channels[0]}' from {start} to {end}")
+            title = f"Data for Channel '{channels[0]}' from {start} to {end}"
+            if plot_frequency:
+                title += f"\n(Frequency calculated with {frequency_window_size}s window)"
         else:
-            plt.suptitle(f"Multi-Channel Data from {start} to {end}")
+            title = f"Multi-Channel Data from {start} to {end}"
+            if plot_frequency:
+                title += f"\n(Frequency calculated with {frequency_window_size}s window)"
         
+        plt.suptitle(title)
         plt.tight_layout()
         
         # Save the plot if required
@@ -160,7 +283,8 @@ class DAQViewer:
             output_dir = "temp_output"
             os.makedirs(output_dir, exist_ok=True)
             channels_str = "_".join(channels) if len(channels) <= 3 else f"{channels[0]}_and_{len(channels)-1}_more"
-            output_path = os.path.join(output_dir, f"{channels_str}_plot_{start}_{end}.png")
+            suffix = "_with_freq" if plot_frequency else ""
+            output_path = os.path.join(output_dir, f"{channels_str}_plot_{start}_{end}{suffix}.png")
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"Plot saved to {output_path}")
 
@@ -187,38 +311,26 @@ def main():
     """
     Main function to demonstrate the usage of DAQViewer with multiple channels.
     """
+    from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
     # Configuration parameters
     show_plot = True
     save_plot = False
     web_display = True  # Set to True to display in web browser
     
-    # File path to the DAQ data
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250603_131534/250603_131545_mtao108-3e/250603_131545_mtao108-3e-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250521_150121/250521_150126_mtaq14-1j/250521_150126_mtaq14-1j-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250624_143340/250624_143350_mtao101-3c/250624_143350_mtao101-3c-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/250623_113539/250623_113554_mtao101-3c/250623_113554_mtao101-3c-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250416_182113/250416_182121_mtaq14-1j/250416_182121_mtaq14-1j-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/2504_pitx_ephys_cohort/250418_143718/250418_143823_mtaq13-3a/250418_143823_mtaq13-3a-ArduinoDAQ.h5"
-    # daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250610_122933/250610_122940_mtao106-3a/250610_122940_mtao106-3a-ArduinoDAQ.h5"
-    daq_file_path = r"/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment/250527_121902/250527_121911_mtao106-3a/250527_121911_mtao106-3a-ArduinoDAQ.h5"
-    # "Z:\Behaviour\2504_pitx_ephys_cohort\250521_150121\250521_150126_mtaq14-1j\250521_150126_mtaq14-1j-ArduinoDAQ.h5"
+    # Frequency analysis parameters
+    plot_frequency = True  # Set to True to plot frequency analysis
+    frequency_threshold = 0.5  # Threshold for pulse detection
+    frequency_window_size = 1.0  # Window size in seconds for frequency calculation
+
+    cohort_dir = "/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment"
+    session_id = "250521_133747_mtao106-3b"  # Example session ID
+
+    cohort = Cohort_folder(cohort_dir, use_existing_cohort_info=True, OEAB_legacy=False)
+    daq_file_path = cohort.get_session(session_id)['raw_data']['arduino_DAQ_h5']
+    
     # Channels to plot - can be a single channel or a list of channels
-    channels_to_plot = ['SCALES']  # Modify as needed
-    # channels_to_plot = ['CAMERA', 'SENSOR1', 'LED_1', 'VALVE1', 'SENSOR2', 'LED_2', 'VALVE2',
-    #                     'SENSOR3', 'LED_3', 'VALVE3', 'SENSOR4', 'LED_4', 'VALVE4',
-    #                     'SENSOR5', 'LED_5', 'VALVE5', 'SENSOR6', 'LED_6', 'VALVE6',
-    #                     # 'BUZZER1', 'BUZZER2', 'BUZZER3', 'BUZZER4', 'BUZZER5', 'BUZZER6', 
-    #                     'GO_CUE', 'NOGO_CUE']
-    # channels_to_plot = [
-    #     # "SPOT1", "SPOT2", "SPOT3", "SPOT4", "SPOT5", "SPOT6", 
-    #         "SENSOR1", "LED_1", "VALVE1", 
-    #         "SENSOR2", "LED_2", "VALVE2", 
-    #         "SENSOR3", "LED_3", "VALVE3", 
-    #         "SENSOR4", "LED_4", "VALVE4", 
-    #         "SENSOR5", "LED_5", "VALVE5", 
-    #         "SENSOR6", "LED_6", "VALVE6", 
-    #         # "BUZZER1", "BUZZER2", "BUZZER3", "BUZZER4", "BUZZER5", "BUZZER6", 
-    #         "GO_CUE", "NOGO_CUE"]
+    channels_to_plot = ['CAMERA']  # Modify as needed
+    
     # Time range for plotting
     start_index = 0
     end_index = None
@@ -233,7 +345,10 @@ def main():
         end=end_index,
         save=save_plot,
         show=show_plot,
-        web_display=web_display
+        web_display=web_display,
+        plot_frequency=plot_frequency,
+        frequency_threshold=frequency_threshold,
+        frequency_window_size=frequency_window_size
     )
 
 
