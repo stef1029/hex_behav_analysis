@@ -6,6 +6,8 @@ import matplotlib.cm as cm
 from scipy import stats
 from itertools import combinations
 from matplotlib.patches import Polygon
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Union
 
 from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 from hex_behav_analysis.utils.Session_nwb import Session
@@ -18,6 +20,83 @@ colors = {
 }
 
 from hex_behav_analysis.plotting_scripts.PP_plot_performance_multi_utils import *
+
+
+@dataclass
+class BinData:
+    """Store binned data for hit rate, bias, and signal detection calculations."""
+    hit_rate_bins: Dict[float, List[int]] = field(default_factory=dict)
+    bias_bins: Dict[float, List[int]] = field(default_factory=dict)
+    bias_incorrect_bins: Dict[float, List[int]] = field(default_factory=dict)
+    signal_detection_bins: Dict[float, Dict[str, int]] = field(default_factory=dict)
+
+
+@dataclass
+class MouseCueModeData:
+    """Store all data for a single mouse and cue mode combination."""
+    trials: List[Dict[str, Any]] = field(default_factory=list)
+    bins: BinData = field(default_factory=BinData)
+    hit_rate: List[float] = field(default_factory=list)
+    bias: List[float] = field(default_factory=list)
+    bias_incorrect: List[float] = field(default_factory=list)
+    bias_corrected: List[float] = field(default_factory=list)
+    dprime: List[float] = field(default_factory=list)
+
+
+@dataclass
+class CircularStats:
+    """Store circular statistics for a group."""
+    mouse_means: List[float] = field(default_factory=list)
+    mouse_resultants: List[float] = field(default_factory=list)
+    mouse_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class PlottingData:
+    """Store aggregated statistics for plotting."""
+    hit_rate: List[float] = field(default_factory=list)
+    hit_rate_sd: List[float] = field(default_factory=list)
+    hit_rate_sem: List[float] = field(default_factory=list)
+
+    bias: List[float] = field(default_factory=list)
+    bias_sd: List[float] = field(default_factory=list)
+    bias_sem: List[float] = field(default_factory=list)
+
+    bias_corrected: List[float] = field(default_factory=list)
+    bias_corrected_sd: List[float] = field(default_factory=list)
+    bias_corrected_sem: List[float] = field(default_factory=list)
+
+    bias_incorrect: List[float] = field(default_factory=list)
+    bias_incorrect_sd: List[float] = field(default_factory=list)
+    bias_incorrect_sem: List[float] = field(default_factory=list)
+
+    dprime: List[float] = field(default_factory=list)
+    dprime_sd: List[float] = field(default_factory=list)
+    dprime_sem: List[float] = field(default_factory=list)
+
+    n: int = 0
+    bin_titles: List[str] = field(default_factory=list)
+
+
+
+@dataclass
+class ExclusionInfo:
+    """
+    Track all exclusion information for trials and mice.
+    """
+    # Trial exclusion counts
+    catch: int = 0
+    too_quick: int = 0
+    timeout_excluded: int = 0
+    no_audio_trials: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DataSet:
+    """Store organised trial data for a dataset."""
+    mice: Dict[str, Dict[str, MouseCueModeData]] = field(default_factory=dict)
+    total_trials: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
 
 def plot_performance_by_angle(sessions_input, 
                               plot_title='title',
@@ -94,7 +173,7 @@ def plot_performance_by_angle(sessions_input,
     timeout_handling : str or None
         How to handle timeout trials:
         - None: Include timeouts as incorrect trials (default behaviour)
-        - 'exclude': Exclude timeouts from performance calculations but keep in total trial count
+        - 'exclude': Exclude timeouts from hit rate calculations but keep in total trial count
         - 'exclude_total': Exclude timeouts from all calculations entirely
     min_trial_duration : float or None
         Minimum trial duration in seconds. Trials shorter than this will be excluded.
@@ -105,38 +184,13 @@ def plot_performance_by_angle(sessions_input,
         Whether to plot circular mean vectors on radial plots
     """
 
-    # Check if we need to calculate d-prime data
-    calculate_dprime = (plot_type == 'dprime')
-
     def get_trials(sessions):
         """
         Collect all trial data, organised by mouse -> cue_mode -> trials.
-        Takes one sessions list and sorts them into mice and cue modes for each mouse, as well as a total trials sort.
-
-        Parameters
-        ----------
-        sessions : list
-            List of session objects
-            
-        Returns
-        -------
-        tuple
-            (mice_dict, total_trials_dict, excluded_trials_info, excluded_mice_info) containing organised trial data
         """
         mice = {}
         total_trials = {mode: [] for mode in cue_modes}
-        
-        # Track excluded trials by reason
-        excluded_trials_info = {
-            'catch': 0,
-            'too_quick': 0,
-            'timeout_excluded': 0
-        }
-        
-        # Track mice excluded for insufficient trial types
-        excluded_mice_info = {
-            'no_audio_trials': []
-        }
+        exclusion_info = ExclusionInfo()
         
         for session in sessions:
             mouse = session.session_dict.get('mouse_id', 'unknown')
@@ -144,17 +198,14 @@ def plot_performance_by_angle(sessions_input,
                 continue
             
             if mouse not in mice:
-                mice[mouse] = {mode: {'trials': [], 'bins': {}, 'bias_bins': {}, 'bias_incorrect_bins': {}} 
-                               for mode in cue_modes}
-                # Add signal detection bins if calculating d-prime
-                if calculate_dprime:
-                    for mode in cue_modes:
-                        mice[mouse][mode]['signal_detection_bins'] = {}
+                mice[mouse] = {}
+                for mode in cue_modes:
+                    mice[mouse][mode] = MouseCueModeData()
             
             for trial in session.trials:
                 # Exclude catch trials
                 if trial.get('catch', False):
-                    excluded_trials_info['catch'] += 1
+                    exclusion_info.catch += 1
                     continue
                 
                 # Calculate trial duration and exclude if too quick
@@ -166,43 +217,43 @@ def plot_performance_by_angle(sessions_input,
                     if cue_start is not None and next_sensor.get('sensor_start') is not None:
                         trial_duration = next_sensor['sensor_start'] - cue_start
                         if trial_duration < min_trial_duration:
-                            excluded_trials_info['too_quick'] += 1
+                            exclusion_info.too_quick += 1
                             continue
                     # If there's no sensor touch (timeout), we can't calculate duration properly
                     # These will be handled by timeout_handling parameter
                 
                 # Handle timeout exclusion if specified
                 if timeout_handling == 'exclude_total' and trial.get('next_sensor', {}) == {}:
-                    excluded_trials_info['timeout_excluded'] += 1
+                    exclusion_info.timeout_excluded += 1
                     continue
 
                 # Distribute trials across the chosen cue_modes
                 if "all_trials" in cue_modes:
-                    mice[mouse]['all_trials']['trials'].append(trial)
+                    mice[mouse]['all_trials'].trials.append(trial)
                     total_trials['all_trials'].append(trial)
                 
                 if "visual_trials" in cue_modes and 'audio' not in trial.get('correct_port', ''):
-                    mice[mouse]['visual_trials']['trials'].append(trial)
+                    mice[mouse]['visual_trials'].trials.append(trial)
                     total_trials['visual_trials'].append(trial)
                 
                 if "audio_trials" in cue_modes and 'audio' in trial.get('correct_port', ''):
-                    mice[mouse]['audio_trials']['trials'].append(trial)
+                    mice[mouse]['audio_trials'].trials.append(trial)
                     total_trials['audio_trials'].append(trial)
         
         # Post-processing: exclude mice with no trials for specific trial types
         mice_to_remove = []
         for key in mice:
             for cue_mode in cue_modes:
-                if cue_mode == 'audio_trials' and len(mice[key][cue_mode]['trials']) == 0:
+                if cue_mode == 'audio_trials' and len(mice[key][cue_mode].trials) == 0:
                     mice_to_remove.append(key)
-                    excluded_mice_info['no_audio_trials'].append(key)
+                    exclusion_info.no_audio_trials.append(key)
                     break
         
         # Remove mice with insufficient trial types
         for key in mice_to_remove:
             del mice[key]
         
-        return mice, total_trials, excluded_trials_info, excluded_mice_info
+        return mice, total_trials, exclusion_info
 
     """
     Plotting logic flow starts here:
@@ -221,7 +272,7 @@ def plot_performance_by_angle(sessions_input,
         mouse_data_dict = {cue_group: {} for cue_group in cue_modes}
 
     # Dictionary to store circular statistics for each group
-    circular_stats_by_group = {}
+    circular_stats_by_group: Dict[str, Dict[str, CircularStats]] = {}
 
     # Decide how to interpret sessions_input - check to make sure that you're not trying to do multiple cue mode lines if you've got multiple datasets.
     if isinstance(sessions_input, dict):
@@ -235,35 +286,24 @@ def plot_performance_by_angle(sessions_input,
         colours_list = get_colours(1)
     # ------------------------------------------------------------------
     # Track total excluded trials across all datasets
-    total_excluded_info = {
-        'catch': 0,
-        'too_quick': 0,
-        'timeout_excluded': 0
-    }
-    
-    # Track total excluded mice across all datasets
-    total_excluded_mice_info = {
-        'no_audio_trials': []
-    }
+    total_excluded_info = ExclusionInfo()
     # ------------------------------------------------------------------
-    
-    # Process each dataset
+    # Process each dataset (eg {'Control': [sess], 'Test1': [sess], 'Test2': [sess]})
     for dataset_name, sessions in sessions_dict.items():
-        data_sets = {}
-        
-        # Normal processing
-        data_sets['mice'], data_sets['total_trials'], excluded_info, excluded_mice_info = get_trials(sessions)
+        data_sets = DataSet()
+
+        # Sort trials into mice -> cue_mode -> trials
+        data_sets.mice, data_sets.total_trials, excluded_info = get_trials(sessions)
         
         # Accumulate exclusion counts
-        for key in total_excluded_info:
-            total_excluded_info[key] += excluded_info[key]
-        
-        # Accumulate excluded mice info
-        for key in total_excluded_mice_info:
-            total_excluded_mice_info[key].extend(excluded_mice_info[key])
+        total_excluded_info.catch += excluded_info.catch
+        total_excluded_info.too_quick += excluded_info.too_quick
+        total_excluded_info.timeout_excluded += excluded_info.timeout_excluded
+        total_excluded_info.no_audio_trials.extend(excluded_info.no_audio_trials)
 
+        # ---------------------- Set up binning 
         # Count total number of trials across relevant modes to pick bin size
-        n = sum(len(data_sets['total_trials'][mode]) for mode in cue_modes)
+        n = sum(len(data_sets.total_trials[mode]) for mode in cue_modes)
         if bin_mode == 'manual':
             num_bins_used = num_bins
         elif bin_mode == 'rice':
@@ -284,44 +324,22 @@ def plot_performance_by_angle(sessions_input,
 
         angle_range = limits[1] - limits[0]
         bin_size = angle_range / num_bins_used
+        # ----------------------
 
-        # For each cue mode, collect performance/bias/bias_incorrect/dprime
+        # For each cue mode (visual trials, audio trials, all trials), collect hit_rate/bias/bias_incorrect/dprime
         for cue_group in cue_modes:
             # Prepare structure for storing average stats across mice
-            plotting_data = {
-                'performance': [],
-                'performance_sd': [],
-                'performance_sem': [],
-                'bias': [],
-                'bias_sd': [],
-                'bias_sem': [],
-                'bias_corrected': [],
-                'bias_corrected_sd': [],
-                'bias_corrected_sem': [],
-                'bias_incorrect': [],
-                'bias_incorrect_sd': [],
-                'bias_incorrect_sem': [],
-                'dprime': [],
-                'dprime_sd': [],
-                'dprime_sem': [],
-                'n': [],
-                'bin_titles': []
-            }
+            plotting_data = PlottingData()
 
             # Store circular statistics for this group
             if dataset_name not in circular_stats_by_group:
                 circular_stats_by_group[dataset_name] = {}
-            circular_stats_by_group[dataset_name][cue_group] = {
-                'mouse_means': [],
-                'mouse_resultants': [],
-                'mouse_ids': []
-            }
+            circular_stats_by_group[dataset_name][cue_group] = CircularStats()
 
-            # Normal processing
-            # Populate bins for each mouse
-            for entity_key in data_sets['mice']:
+            # Create bins for each mouse
+            for mouse_id in data_sets.mice:
                 # Dictionary of angle bin -> list of correctness (1 or 0)
-                perf_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
+                hit_rate_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
 
                 # For standard bias, we count *any* direction touches
                 bias_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
@@ -330,16 +348,18 @@ def plot_performance_by_angle(sessions_input,
                 bias_incorrect_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
                 
                 # For d-prime, track signal detection metrics
-                if calculate_dprime:
-                    signal_detection_bins = {i: {
-                        'hits': 0,
-                        'total_signal_trials': 0,
-                        'false_alarms': 0,
-                        'total_noise_trials': 0
-                    } for i in np.arange(limits[0], limits[1], bin_size)}
+                signal_detection_bins = {i: {
+                    'hits': 0,
+                    'total_signal_trials': 0,
+                    'false_alarms': 0,
+                    'total_noise_trials': 0
+                } for i in np.arange(limits[0], limits[1], bin_size)}
 
-                # Go through each trial
-                for trial in data_sets['mice'][entity_key][cue_group]['trials']:
+                # Track number of incorrect trials as we go
+                num_incorrect_trials = 0
+
+                # Go through each trial (SINGLE PASS)
+                for trial in data_sets.mice[mouse_id][cue_group].trials:
                     # If there's no "turn_data", skip
                     if trial.get("turn_data") is None:
                         continue
@@ -349,7 +369,7 @@ def plot_performance_by_angle(sessions_input,
                         trial["turn_data"].get("right_ear_likelihood", 1) < likelihood_threshold):
                         continue
 
-                    angle = trial["turn_data"]["cue_presentation_angle"]
+                    cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
                     port_touched_angle = trial["turn_data"].get("port_touched_angle")
 
                     # Figure out if trial was correct or not
@@ -358,43 +378,18 @@ def plot_performance_by_angle(sessions_input,
                     
                     if trial.get("next_sensor") and not is_timeout:
                         is_correct = int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1])
-                    
-                    # Handle timeout trials based on timeout_handling parameter
-                    if is_timeout and timeout_handling == 'exclude':
-                        # Skip timeouts for performance calculations
-                        pass
-                    else:
-                        # Fill in performance bins for non-timeout trials (or all trials if timeout_handling is None)
-                        for bin_start in perf_bins:
-                            if bin_start <= angle < bin_start + bin_size:
-                                perf_bins[bin_start].append(1 if is_correct else 0)
-                                break
+                        
+                        # Count incorrect trials (considering timeout handling)
+                        if not is_correct:
+                            num_incorrect_trials += 1
 
-                    # Fill in "standard" bias bins
-                    if port_touched_angle is not None:
-                        for bin_start in bias_bins:
-                            if bin_start <= port_touched_angle < bin_start + bin_size:
-                                bias_bins[bin_start].append(1)
-                                break
-
-                    # Fill in "incorrect-only" bias bins
-                    if is_timeout and timeout_handling == 'exclude':
-                        # Skip timeouts when building incorrect-only bias
-                        pass
-                    elif (not is_correct) and (port_touched_angle is not None):
-                        for bin_start in bias_incorrect_bins:
-                            if bin_start <= port_touched_angle < bin_start + bin_size:
-                                bias_incorrect_bins[bin_start].append(1)
-                                break
-                    
-                    # Fill in signal detection bins for d-prime
-                    if calculate_dprime and trial.get("next_sensor") and not is_timeout:
+                        # --------- D prime handling ---------
                         # Find cue bin and response bin
                         cue_bin = None
                         response_bin = None
                         
                         for bin_start in signal_detection_bins:
-                            if bin_start <= angle < bin_start + bin_size:
+                            if bin_start <= cue_presentation_angle < bin_start + bin_size:
                                 cue_bin = bin_start
                             if port_touched_angle is not None and bin_start <= port_touched_angle < bin_start + bin_size:
                                 response_bin = bin_start
@@ -415,129 +410,165 @@ def plot_performance_by_angle(sessions_input,
                                     # Check for false alarms
                                     if bin_start == response_bin and not is_correct:
                                         signal_detection_bins[bin_start]['false_alarms'] += 1
+                        # --------------------------------------
+                    elif is_timeout and not (timeout_handling == 'exclude'):
+                        # Timeout trials count as incorrect (unless excluded)
+                        num_incorrect_trials += 1
+                        
+                    # Handle timeout trials based on timeout_handling parameter
+                    if is_timeout and timeout_handling == 'exclude':
+                        # Skip timeouts for hit rate calculations
+                        pass
+                    else:
+                        # Fill in hit rate bins for non-timeout trials (or all trials if timeout_handling is None)
+                        for bin_start in hit_rate_bins:
+                            if bin_start <= cue_presentation_angle < bin_start + bin_size:
+                                hit_rate_bins[bin_start].append(1 if is_correct else 0)
+                                break
 
-                # Calculate circular statistics using performance data
-                # Get bin centers and performance values
-                bin_list = sorted(list(perf_bins.keys()))
+                    # Fill in "standard" bias bins
+                    if port_touched_angle is not None:
+                        for bin_start in bias_bins:
+                            if bin_start <= port_touched_angle < bin_start + bin_size:
+                                bias_bins[bin_start].append(1)
+                                break
+
+                    # Fill in "incorrect-only" bias bins
+                    if is_timeout and timeout_handling == 'exclude':
+                        # Skip timeouts when building incorrect-only bias
+                        pass
+                    elif (not is_correct) and (port_touched_angle is not None):
+                        for bin_start in bias_incorrect_bins:
+                            if bin_start <= port_touched_angle < bin_start + bin_size:
+                                bias_incorrect_bins[bin_start].append(1)
+                                break
+
+                # Now calculate all metrics
+                bin_list = sorted(list(hit_rate_bins.keys()))
                 bin_centers = [b + bin_size / 2 for b in bin_list]
-                entity_performance = calc_performance(perf_bins)
-                
-                # Only include bins with non-zero performance as weights
-                valid_angles = []
-                valid_weights = []
-                for angle, perf in zip(bin_centers, entity_performance):
-                    if perf > 0:  # Only include bins where performance > 0
-                        valid_angles.append(angle)
-                        valid_weights.append(perf)
-                
-                # Only calculate circular stats for non-dprime plot types
-                if valid_angles and plot_type != 'dprime':
-                    mouse_circ_stats = calculate_circular_statistics(valid_angles, valid_weights)
-                    circular_stats_by_group[dataset_name][cue_group]['mouse_means'].append(
-                        mouse_circ_stats['circular_mean'])
-                    circular_stats_by_group[dataset_name][cue_group]['mouse_resultants'].append(
-                        mouse_circ_stats['resultant_length'])
-                    circular_stats_by_group[dataset_name][cue_group]['mouse_ids'].append(entity_key)
-                else:
-                    # No valid performance data for this mouse - store NaN
-                    circular_stats_by_group[dataset_name][cue_group]['mouse_means'].append(np.nan)
-                    circular_stats_by_group[dataset_name][cue_group]['mouse_resultants'].append(np.nan)
-                    circular_stats_by_group[dataset_name][cue_group]['mouse_ids'].append(entity_key)
+
+                # Calculate hit rate
+                mouse_hit_rate = calc_hit_rate(hit_rate_bins)
 
                 # Standard bias: all trials
-                total_trials_for_bias = len(data_sets['mice'][entity_key][cue_group]['trials'])
-                entity_bias = calc_bias(bias_bins, total_trials_for_bias)
+                total_trials_for_bias = len(data_sets.mice[mouse_id][cue_group].trials)
+                mouse_bias = calc_bias(bias_bins, total_trials_for_bias)
 
-                # "Incorrect-only" bias:
-                num_incorrect_trials = 0
-                for tr in data_sets['mice'][entity_key][cue_group]['trials']:
-                    if tr.get("turn_data") is None:
-                        continue
-                    if (tr["turn_data"].get("left_ear_likelihood", 1) < likelihood_threshold or
-                        tr["turn_data"].get("right_ear_likelihood", 1) < likelihood_threshold):
-                        continue
-                    
-                    if tr.get("next_sensor"):
-                        was_correct = (int(tr["correct_port"][-1]) == int(tr["next_sensor"]["sensor_touched"][-1]))
-                        is_timeout = tr.get("next_sensor") == {}
-                        
-                        # Handle timeout logic for incorrect trial counting
-                        if is_timeout and timeout_handling == 'exclude':
-                            # Don't count timeouts as incorrect
-                            continue
-                        
-                        if not was_correct:
-                            num_incorrect_trials += 1
+                # "Incorrect-only" bias using the count we already have
+                mouse_bias_incorrect = calc_bias(bias_incorrect_bins, num_incorrect_trials if num_incorrect_trials > 0 else 1)
 
-                entity_bias_incorrect = calc_bias(bias_incorrect_bins, num_incorrect_trials if num_incorrect_trials > 0 else 1)
+                # Bias-corrected hit rate
+                mouse_bias_corrected = np.array(mouse_hit_rate) / (np.array(mouse_bias) + 1e-10)
 
-                # Bias-corrected performance
-                # (divide performance by the fraction of trials that touched that bin, with a small epsilon)
-                entity_bias_corrected = np.array(entity_performance) / (np.array(entity_bias) + 1e-10)
-                
-                # Calculate d-prime for each bin if needed
-                entity_dprime = []
-                if calculate_dprime:
-                    for bin_start in sorted(signal_detection_bins):
-                        bin_data = signal_detection_bins[bin_start]
-                        dprime = calc_dprime(
-                            bin_data['hits'],
-                            bin_data['total_signal_trials'],
-                            bin_data['false_alarms'],
-                            bin_data['total_noise_trials']
-                        )
-                        entity_dprime.append(dprime)
+                # Calculate d-prime for each bin
+                mouse_dprime = []
+                for bin_start in sorted(signal_detection_bins):
+                    bin_data = signal_detection_bins[bin_start]
+                    dprime = calc_dprime(
+                        bin_data['hits'],
+                        bin_data['total_signal_trials'],
+                        bin_data['false_alarms'],
+                        bin_data['total_noise_trials']
+                    )
+                    mouse_dprime.append(dprime)
+
+                # NOW calculate circular statistics after all metrics are computed
+                # Select the appropriate data based on plot type
+                if plot_type == 'hit_rate':
+                    data_for_stats = mouse_hit_rate
+                elif plot_type == 'bias':
+                    data_for_stats = mouse_bias
+                elif plot_type == 'bias_corrected':
+                    data_for_stats = mouse_bias_corrected.tolist()  # Convert numpy array to list
+                elif plot_type == 'bias_incorrect':
+                    data_for_stats = mouse_bias_incorrect
+                elif plot_type == 'dprime':
+                    data_for_stats = mouse_dprime
+                else:
+                    raise ValueError(f"Unknown plot_type: {plot_type}")
+
+                # Filter out zero or negative values for weights (depending on plot type)
+                valid_angles = []
+                valid_weights = []
+
+                for angle, value in zip(bin_centers, data_for_stats):
+                    # Different filtering logic based on plot type
+                    if plot_type == 'dprime':
+                        # For d-prime, we might want to include negative values
+                        # but shift them to ensure positive weights
+                        if not np.isnan(value):
+                            valid_angles.append(angle)
+                            # Shift d-prime values to be positive (adding 3 ensures most values are positive)
+                            valid_weights.append(value + 3)
+                    elif plot_type in ['bias', 'bias_incorrect']:
+                        # For bias metrics, only include non-zero values
+                        if value > 0:
+                            valid_angles.append(angle)
+                            valid_weights.append(value)
+                    else:
+                        # For hit_rate and bias_corrected, include all positive values
+                        if value > 0:
+                            valid_angles.append(angle)
+                            valid_weights.append(value)
+
+                # Calculate circular statistics if we have valid data
+                if valid_angles:
+                    mouse_circ_stats = calculate_circular_statistics(valid_angles, valid_weights)
+                    circular_stats_by_group[dataset_name][cue_group].mouse_means.append(
+                        mouse_circ_stats['circular_mean'])
+                    circular_stats_by_group[dataset_name][cue_group].mouse_resultants.append(
+                        mouse_circ_stats['resultant_length'])
+                    circular_stats_by_group[dataset_name][cue_group].mouse_ids.append(mouse_id)
+                else:
+                    # No valid data for this mouse - store NaN
+                    circular_stats_by_group[dataset_name][cue_group].mouse_means.append(np.nan)
+                    circular_stats_by_group[dataset_name][cue_group].mouse_resultants.append(np.nan)
+                    circular_stats_by_group[dataset_name][cue_group].mouse_ids.append(mouse_id)
 
                 # Store the bins and numeric arrays in the mouse record
-                data_sets['mice'][entity_key][cue_group].update({
-                    'perf_bins': perf_bins,
-                    'bias_bins': bias_bins,
-                    'bias_incorrect_bins': bias_incorrect_bins,
-                    'performance': entity_performance,
-                    'bias': entity_bias,
-                    'bias_incorrect': entity_bias_incorrect,
-                    'bias_corrected': entity_bias_corrected.tolist()
-                })
-                
-                if calculate_dprime:
-                    data_sets['mice'][entity_key][cue_group]['dprime'] = entity_dprime
-                    data_sets['mice'][entity_key][cue_group]['signal_detection_bins'] = signal_detection_bins
+                data_sets.mice[mouse_id][cue_group].bins.hit_rate_bins = hit_rate_bins
+                data_sets.mice[mouse_id][cue_group].bins.bias_bins = bias_bins
+                data_sets.mice[mouse_id][cue_group].bins.bias_incorrect_bins = bias_incorrect_bins
+                data_sets.mice[mouse_id][cue_group].hit_rate = mouse_hit_rate
+                data_sets.mice[mouse_id][cue_group].bias = mouse_bias
+                data_sets.mice[mouse_id][cue_group].bias_incorrect = mouse_bias_incorrect
+                data_sets.mice[mouse_id][cue_group].bias_corrected = mouse_bias_corrected.tolist()
+                data_sets.mice[mouse_id][cue_group].dprime = mouse_dprime
+                data_sets.mice[mouse_id][cue_group].bins.signal_detection_bins = signal_detection_bins
 
                 # Store individual mouse data for plotting if requested
                 if plot_individual_mice:
-                    if entity_key not in mouse_data_dict[cue_group]:
-                        mouse_data_dict[cue_group][entity_key] = []
+                    if mouse_id not in mouse_data_dict[cue_group]:
+                        mouse_data_dict[cue_group][mouse_id] = []
                     
                     if plot_type == 'dprime':
-                        mouse_data_dict[cue_group][entity_key] = entity_dprime
+                        mouse_data_dict[cue_group][mouse_id] = mouse_dprime
                     else:
-                        mouse_data_dict[cue_group][entity_key] = entity_performance
+                        mouse_data_dict[cue_group][mouse_id] = mouse_hit_rate
 
             # Compute across-mice statistics (normal flow)
             # Convert each measure to an array [mouse x angle_bin]
-            performance_array = np.array([
-                data_sets['mice'][m][cue_group]['performance'] for m in data_sets['mice']
+            hit_rate_array = np.array([
+                data_sets.mice[m][cue_group].hit_rate for m in data_sets.mice
             ])
             bias_array = np.array([
-                data_sets['mice'][m][cue_group]['bias'] for m in data_sets['mice']
+                data_sets.mice[m][cue_group].bias for m in data_sets.mice
             ])
             bias_incorrect_array = np.array([
-                data_sets['mice'][m][cue_group]['bias_incorrect'] for m in data_sets['mice']
+                data_sets.mice[m][cue_group].bias_incorrect for m in data_sets.mice
             ])
             bias_corrected_array = np.array([
-                data_sets['mice'][m][cue_group]['bias_corrected'] for m in data_sets['mice']
+                data_sets.mice[m][cue_group].bias_corrected for m in data_sets.mice
             ])
-            
-            if calculate_dprime:
-                dprime_array = np.array([
-                    data_sets['mice'][m][cue_group]['dprime'] for m in data_sets['mice']
-                ])
+            dprime_array = np.array([
+                data_sets.mice[m][cue_group].dprime for m in data_sets.mice
+            ])
 
-            n_mice = len(data_sets['mice'])
+            n_mice = len(data_sets.mice)
 
             # Means + spreads
-            mean_performance = performance_array.mean(axis=0)
-            sem_performance = performance_array.std(axis=0) / np.sqrt(n_mice)
+            mean_hit_rate = hit_rate_array.mean(axis=0)
+            sem_hit_rate = hit_rate_array.std(axis=0) / np.sqrt(n_mice)
 
             mean_bias = bias_array.mean(axis=0)
             sem_bias = bias_array.std(axis=0) / np.sqrt(n_mice)
@@ -548,39 +579,37 @@ def plot_performance_by_angle(sessions_input,
             mean_bias_corrected = bias_corrected_array.mean(axis=0)
             sem_bias_corrected = bias_corrected_array.std(axis=0) / np.sqrt(n_mice)
             
-            if calculate_dprime:
-                mean_dprime = dprime_array.mean(axis=0)
-                sem_dprime = dprime_array.std(axis=0) / np.sqrt(n_mice)
+            mean_dprime = dprime_array.mean(axis=0)
+            sem_dprime = dprime_array.std(axis=0) / np.sqrt(n_mice)
 
             # Fill in plotting_data with aggregated stats
             # Sorted by bin_start in ascending order
-            bin_list = sorted(list(list(data_sets['mice'].values())[0][cue_group]['perf_bins'].keys()))
-            plotting_data.update({
-                'performance': mean_performance,
-                'performance_sd': performance_array.std(axis=0),
-                'performance_sem': sem_performance,
-                'bias': mean_bias,
-                'bias_sd': bias_array.std(axis=0),
-                'bias_sem': sem_bias,
-                'bias_incorrect': mean_bias_incorrect,
-                'bias_incorrect_sd': bias_incorrect_array.std(axis=0),
-                'bias_incorrect_sem': sem_bias_incorrect,
-                'bias_corrected': mean_bias_corrected,
-                'bias_corrected_sd': bias_corrected_array.std(axis=0),
-                'bias_corrected_sem': sem_bias_corrected,
-                'n': n_mice,
-                'bin_titles': [f"{b + (bin_size / 2):.2f}" for b in bin_list]
-            })
+            bin_list = sorted(list(list(data_sets.mice.values())[0][cue_group].bins.hit_rate_bins.keys()))
+            plotting_data.hit_rate = mean_hit_rate.tolist()
+            plotting_data.hit_rate_sd = hit_rate_array.std(axis=0).tolist()
+            plotting_data.hit_rate_sem = sem_hit_rate.tolist()
+
+            plotting_data.bias = mean_bias.tolist()
+            plotting_data.bias_sd = bias_array.std(axis=0).tolist()
+            plotting_data.bias_sem = sem_bias.tolist()
+
+            plotting_data.bias_incorrect = mean_bias_incorrect.tolist()
+            plotting_data.bias_incorrect_sd = bias_incorrect_array.std(axis=0).tolist()
+            plotting_data.bias_incorrect_sem = sem_bias_incorrect.tolist()
+
+            plotting_data.bias_corrected = mean_bias_corrected.tolist()
+            plotting_data.bias_corrected_sd = bias_corrected_array.std(axis=0).tolist()
+            plotting_data.bias_corrected_sem = sem_bias_corrected.tolist()
             
-            if calculate_dprime:
-                plotting_data.update({
-                    'dprime': mean_dprime,
-                    'dprime_sd': dprime_array.std(axis=0),
-                    'dprime_sem': sem_dprime
-                })
+            plotting_data.dprime = mean_dprime.tolist()
+            plotting_data.dprime_sd = dprime_array.std(axis=0).tolist()
+            plotting_data.dprime_sem = sem_dprime.tolist()
+
+            plotting_data.n = n_mice
+            plotting_data.bin_titles = [f"{b + (bin_size / 2):.2f}" for b in bin_list]
 
             # Plotting
-            angles_deg = np.array(plotting_data['bin_titles'], dtype=np.float64)
+            angles_deg = np.array(plotting_data.bin_titles, dtype=np.float64)
 
             if plot_mode == 'radial':
                 # Convert angles to [0..360), then wrap
@@ -590,21 +619,23 @@ def plot_performance_by_angle(sessions_input,
                 angles_rad = np.append(angles_rad, angles_rad[0])
 
                 if plot_type == 'hit_rate':
-                    plot_data = np.append(plotting_data['performance'], plotting_data['performance'][0])
-                    error_data = np.append(plotting_data['performance_sem'], plotting_data['performance_sem'][0])
+                    plot_data = np.append(plotting_data.hit_rate, plotting_data.hit_rate[0])
+                    error_data = np.append(plotting_data.hit_rate_sem, plotting_data.hit_rate_sem[0])
                 elif plot_type == 'bias_corrected':
-                    plot_data = np.append(plotting_data['bias_corrected'], plotting_data['bias_corrected'][0])
-                    error_data = np.append(plotting_data['bias_corrected_sem'], plotting_data['bias_corrected_sem'][0])
+                    plot_data = np.append(plotting_data.bias_corrected, plotting_data.bias_corrected[0])
+                    error_data = np.append(plotting_data.bias_corrected_sem, plotting_data.bias_corrected_sem[0])
                 elif plot_type == 'bias_incorrect':
-                    plot_data = np.append(plotting_data['bias_incorrect'], plotting_data['bias_incorrect'][0])
-                    error_data = np.append(plotting_data['bias_incorrect_sem'], plotting_data['bias_incorrect_sem'][0])
+                    plot_data = np.append(plotting_data.bias_incorrect, plotting_data.bias_incorrect[0])
+                    error_data = np.append(plotting_data.bias_incorrect_sem, plotting_data.bias_incorrect_sem[0])
                 elif plot_type == 'dprime':
-                    plot_data = np.append(plotting_data['dprime'], plotting_data['dprime'][0])
-                    error_data = np.append(plotting_data['dprime_sem'], plotting_data['dprime_sem'][0])
-                else:  # 'bias' by default
-                    plot_data = np.append(plotting_data['bias'], plotting_data['bias'][0])
-                    error_data = np.append(plotting_data['bias_sem'], plotting_data['bias_sem'][0])
-
+                    plot_data = np.append(plotting_data.dprime, plotting_data.dprime[0])
+                    error_data = np.append(plotting_data.dprime_sem, plotting_data.dprime_sem[0])
+                elif plot_type == 'bias':
+                    plot_data = np.append(plotting_data.bias, plotting_data.bias[0])
+                    error_data = np.append(plotting_data.bias_sem, plotting_data.bias_sem[0])
+                else:
+                    raise ValueError(f"Unknown plot_type: {plot_type}")
+                
                 # Pick colour for the line
                 if isinstance(sessions_input, dict) and len(sessions_dict) > 1:
                     # Multiple session groups: use smart colour assignment based on group names
@@ -642,15 +673,17 @@ def plot_performance_by_angle(sessions_input,
                     for mouse, mouse_data in mouse_data_dict[cue_group].items():
                         # Choose the right data type based on plot_type
                         if plot_type == 'hit_rate':
-                            individual_data = mouse_data
+                            individual_data = data_sets.mice[mouse][cue_group].hit_rate
                         elif plot_type == 'bias_corrected':
-                            individual_data = data_sets['mice'][mouse][cue_group]['bias_corrected']
+                            individual_data = data_sets.mice[mouse][cue_group].bias_corrected
                         elif plot_type == 'bias_incorrect':
-                            individual_data = data_sets['mice'][mouse][cue_group]['bias_incorrect']
+                            individual_data = data_sets.mice[mouse][cue_group].bias_incorrect
                         elif plot_type == 'dprime':
-                            individual_data = data_sets['mice'][mouse][cue_group]['dprime']
-                        else:  # 'bias'
-                            individual_data = data_sets['mice'][mouse][cue_group]['bias']
+                            individual_data = data_sets.mice[mouse][cue_group].dprime
+                        elif plot_type == 'bias':
+                            individual_data = data_sets.mice[mouse][cue_group].bias
+                        else:
+                            raise ValueError(f"Unknown plot_type: {plot_type}")
                         
                         # Close the circular plot for individual mouse data
                         individual_data_closed = np.append(individual_data, individual_data[0])
@@ -662,7 +695,7 @@ def plot_performance_by_angle(sessions_input,
                     group_stats = circular_stats_by_group[dataset_name][cue_group]
                     
                     # Calculate overall group circular mean from individual mouse means
-                    all_valid_means = [m for m in group_stats['mouse_means'] if not np.isnan(m)]
+                    all_valid_means = [m for m in group_stats.mouse_means if not np.isnan(m)]
                     if all_valid_means:
                         group_circ_stats = calculate_circular_statistics(
                             all_valid_means, 
@@ -685,9 +718,9 @@ def plot_performance_by_angle(sessions_input,
                         # Optionally plot individual mouse means as smaller arrows
                         if plot_individual_mice:
                             for i, (mouse_id, mean_angle, resultant) in enumerate(
-                                    zip(group_stats['mouse_ids'], 
-                                        group_stats['mouse_means'], 
-                                        group_stats['mouse_resultants'])):
+                                    zip(group_stats.mouse_ids, 
+                                        group_stats.mouse_means, 
+                                        group_stats.mouse_resultants)):
                                 
                                 if not np.isnan(mean_angle):
                                     mean_rad = np.radians(mean_angle)
@@ -702,20 +735,20 @@ def plot_performance_by_angle(sessions_input,
             elif plot_mode == 'linear_comparison':
                 # Decide which metric to plot
                 if plot_type == 'hit_rate':
-                    plot_data = plotting_data['performance']
-                    error_data = plotting_data['performance_sem']
+                    plot_data = plotting_data.hit_rate
+                    error_data = plotting_data.hit_rate_sem
                 elif plot_type == 'bias_corrected':
-                    plot_data = plotting_data['bias_corrected']
-                    error_data = plotting_data['bias_corrected_sem']
+                    plot_data = plotting_data.bias_corrected
+                    error_data = plotting_data.bias_corrected_sem
                 elif plot_type == 'bias_incorrect':
-                    plot_data = plotting_data['bias_incorrect']
-                    error_data = plotting_data['bias_incorrect_sem']
+                    plot_data = plotting_data.bias_incorrect
+                    error_data = plotting_data.bias_incorrect_sem
                 elif plot_type == 'dprime':
-                    plot_data = plotting_data['dprime']
-                    error_data = plotting_data['dprime_sem']
+                    plot_data = plotting_data.dprime
+                    error_data = plotting_data.dprime_sem
                 else:  # 'bias'
-                    plot_data = plotting_data['bias']
-                    error_data = plotting_data['bias_sem']
+                    plot_data = plotting_data.bias
+                    error_data = plotting_data.bias_sem
 
                 # Pick colour for the line
                 if isinstance(sessions_input, dict) and len(sessions_dict) > 1:
@@ -746,7 +779,9 @@ def plot_performance_by_angle(sessions_input,
                 # Plot
                 ax.plot(angles_deg, plot_data, marker='o', label=label, color=colour, linewidth=2)
                 if error_bars == 'SEM':
-                    ax.fill_between(angles_deg, plot_data - error_data, plot_data + error_data,
+                    ax.fill_between(angles_deg, 
+                                    np.array(plot_data) - np.array(error_data), 
+                                    np.array(plot_data) + np.array(error_data),
                                     alpha=0.3, color=lighten_colour(colour))
 
                 # Plot individual mouse data if requested
@@ -756,13 +791,13 @@ def plot_performance_by_angle(sessions_input,
                         if plot_type == 'hit_rate':
                             individual_data = mouse_data
                         elif plot_type == 'bias_corrected':
-                            individual_data = data_sets['mice'][mouse][cue_group]['bias_corrected']
+                            individual_data = data_sets.mice[mouse][cue_group].bias_corrected
                         elif plot_type == 'bias_incorrect':
-                            individual_data = data_sets['mice'][mouse][cue_group]['bias_incorrect']
+                            individual_data = data_sets.mice[mouse][cue_group].bias_incorrect
                         elif plot_type == 'dprime':
-                            individual_data = data_sets['mice'][mouse][cue_group]['dprime']
+                            individual_data = data_sets.mice[mouse][cue_group].dprime
                         else:  # 'bias'
-                            individual_data = data_sets['mice'][mouse][cue_group]['bias']
+                            individual_data = data_sets.mice[mouse][cue_group].bias
                         
                         ax.plot(angles_deg, individual_data, 
                                label=f"Mouse {mouse}", linestyle='--', marker='o', alpha=0.7)
@@ -806,9 +841,9 @@ def plot_performance_by_angle(sessions_input,
         elif plot_type in ('bias', 'bias_incorrect'):
             ax.set_ylabel(y_title or 'Bias')
         elif plot_type == 'bias_corrected':
-            ax.set_ylabel(y_title or 'Bias-Corrected Performance')
+            ax.set_ylabel(y_title or 'Bias-Corrected Hit Rate')
         else:
-            ax.set_ylabel(y_title or 'Performance')
+            ax.set_ylabel(y_title or 'Hit Rate')
             
         ax.set_xlim(limits[0], limits[1])
 
