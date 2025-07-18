@@ -139,20 +139,30 @@ def main():
     """
     Main function to execute the mouse ID renaming process.
     """
-    cohort_directory = Path("/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Experiment")
+    cohort_directory = Path("/cephfs2/srogers/Behaviour/Pitx2_Chemogenetics/Training")
     from hex_behav_analysis.utils.Cohort_folder import Cohort_folder
 
     cohort = Cohort_folder(cohort_directory, OEAB_legacy=False, use_existing_cohort_info=False)
 
-    session_folder_path = cohort.get_session('250512_132404_mtao102-2e')['directory']
-    new_mouse_id = 'mtao102-3e'  # Replace with the actual new mouse ID you want to use
+    session_list = [
+   "250401_170041_mtao108-1e",
+   "250402_170756_mtao108-1e",
+   "250402_171438_mtao108-1e",
+   "250404_164232_mtao108-1e",
+   "250408_203246_mtao108-1e",
+   "250408_203353_mtao108-1e",
+   "250408_203544_mtao108-1e"
+]
+    for session in session_list:
+        session_folder_path = cohort.get_session(session)['directory']
+        new_mouse_id = 'mtao108-3e'  # Replace with the actual new mouse ID you want to use
 
 
-    try:
-        process_session_folder(session_folder_path, new_mouse_id)
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+        try:
+            process_session_folder(session_folder_path, new_mouse_id)
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
     
     return 0
 

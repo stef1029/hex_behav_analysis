@@ -107,7 +107,7 @@ def plot_performance_by_angle(sessions_input,
                               trials_per_bin=10, 
                               plot_mode='radial', 
                               plot_type='hit_rate',  # 'hit_rate', 'bias_corrected', 'bias', 'bias_incorrect', 'dprime'
-                              cue_modes=['all_trials'],
+                              cue_modes=['visual_trials'],
                               error_bars='SEM',
                               plot_individual_mice=False,
                               exclusion_mice=[],
@@ -192,8 +192,10 @@ def plot_performance_by_angle(sessions_input,
         total_trials = {mode: [] for mode in cue_modes}
         exclusion_info = ExclusionInfo()
         
+        
         for session in sessions:
             mouse = session.session_dict.get('mouse_id', 'unknown')
+            session_id = session.session_dict.get('session_id', 'unknown')
             if mouse in exclusion_mice:
                 continue
             
@@ -202,6 +204,11 @@ def plot_performance_by_angle(sessions_input,
                 for mode in cue_modes:
                     mice[mouse][mode] = MouseCueModeData()
             
+            try:
+                trials = session.trials
+            except AttributeError:
+                print(f"Warning: No trials found for session {session_id}. Skipping.")
+                continue
             for trial in session.trials:
                 # Exclude catch trials
                 if trial.get('catch', False):
@@ -265,8 +272,11 @@ def plot_performance_by_angle(sessions_input,
     else:
         plt.figure(figsize=(12, 6))
         ax = plt.subplot(111)
-    # ------------------------------------------------------------------
 
+    # Track maximum values across all datasets for y-axis scaling
+    all_datasets_max = -5
+    all_datasets_min = float('inf')
+    # ------------------------------------------------------------------
     # Dictionary to hold mouse-specific data for individual plotting
     if plot_individual_mice:
         mouse_data_dict = {cue_group: {} for cue_group in cue_modes}
@@ -304,6 +314,7 @@ def plot_performance_by_angle(sessions_input,
         # ---------------------- Set up binning 
         # Count total number of trials across relevant modes to pick bin size
         n = sum(len(data_sets.total_trials[mode]) for mode in cue_modes)
+
         if bin_mode == 'manual':
             num_bins_used = num_bins
         elif bin_mode == 'rice':
@@ -336,8 +347,16 @@ def plot_performance_by_angle(sessions_input,
                 circular_stats_by_group[dataset_name] = {}
             circular_stats_by_group[dataset_name][cue_group] = CircularStats()
 
+            total_trials = data_sets.total_trials[cue_group]
+            total_excluded_trials = 0
+            total_correct = 0
+
             # Create bins for each mouse
             for mouse_id in data_sets.mice:
+                mouse_total_trials = len(data_sets.mice[mouse_id][cue_group].trials)
+                mouse_total_correct = 0
+                excluded_trials = 0
+
                 # Dictionary of angle bin -> list of correctness (1 or 0)
                 hit_rate_bins = {i: [] for i in np.arange(limits[0], limits[1], bin_size)}
 
@@ -357,34 +376,51 @@ def plot_performance_by_angle(sessions_input,
 
                 # Track number of incorrect trials as we go
                 num_incorrect_trials = 0
-
-                # Go through each trial (SINGLE PASS)
+                
+                # Go through each trial 
                 for trial in data_sets.mice[mouse_id][cue_group].trials:
+                    # --------- Skip relevant trials: -------------
+                    is_correct = False
+                    
                     # If there's no "turn_data", skip
                     if trial.get("turn_data") is None:
+                        excluded_trials += 1
+                        total_excluded_trials += 1
                         continue
+                    else: # else try and get turn data:
+                        # Check ear detection likelihood above threshold, skip if not:
+                        if (trial["turn_data"].get("left_ear_likelihood", 1) <= likelihood_threshold or
+                            trial["turn_data"].get("right_ear_likelihood", 1) <= likelihood_threshold):
+                            excluded_trials += 1
+                            total_excluded_trials += 1
+                            continue
+                        else:   # else grab turn data:
+                            cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
+                            port_touched_angle = trial["turn_data"].get("port_touched_angle")
 
-                    # Check ear detection likelihood
-                    if (trial["turn_data"].get("left_ear_likelihood", 1) < likelihood_threshold or
-                        trial["turn_data"].get("right_ear_likelihood", 1) < likelihood_threshold):
-                        continue
-
-                    cue_presentation_angle = trial["turn_data"]["cue_presentation_angle"]
-                    port_touched_angle = trial["turn_data"].get("port_touched_angle")
-
-                    # Figure out if trial was correct or not
-                    is_correct = False
+                    # Figure out if trial was timeout or not:
                     is_timeout = trial.get("next_sensor") == {}
-                    
-                    if trial.get("next_sensor") and not is_timeout:
+
+                    if is_timeout:
+                        if timeout_handling == 'exclude':   # If 'exclude' then skip that trial from the processing]
+                            excluded_trials += 1
+                            total_excluded_trials += 1
+                            continue
+                        else:
+                            num_incorrect_trials += 1
+
+                    else:
                         is_correct = int(trial["correct_port"][-1]) == int(trial["next_sensor"]["sensor_touched"][-1])
-                        
+
                         # Count incorrect trials (considering timeout handling)
                         if not is_correct:
                             num_incorrect_trials += 1
+                        else:
+                            mouse_total_correct += 1
+                            total_correct += 1
 
                         # --------- D prime handling ---------
-                        # Find cue bin and response bin
+                        # Find cue bin and response bin 
                         cue_bin = None
                         response_bin = None
                         
@@ -411,21 +447,12 @@ def plot_performance_by_angle(sessions_input,
                                     if bin_start == response_bin and not is_correct:
                                         signal_detection_bins[bin_start]['false_alarms'] += 1
                         # --------------------------------------
-                    elif is_timeout and not (timeout_handling == 'exclude'):
-                        # Timeout trials count as incorrect (unless excluded)
-                        num_incorrect_trials += 1
+                    # Fill in hit rate bins for non-timeout trials (or all trials if timeout_handling is None)
+                    for bin_start in hit_rate_bins:
+                        if bin_start <= cue_presentation_angle < bin_start + bin_size:
+                            hit_rate_bins[bin_start].append(1 if is_correct else 0)
+                            break
                         
-                    # Handle timeout trials based on timeout_handling parameter
-                    if is_timeout and timeout_handling == 'exclude':
-                        # Skip timeouts for hit rate calculations
-                        pass
-                    else:
-                        # Fill in hit rate bins for non-timeout trials (or all trials if timeout_handling is None)
-                        for bin_start in hit_rate_bins:
-                            if bin_start <= cue_presentation_angle < bin_start + bin_size:
-                                hit_rate_bins[bin_start].append(1 if is_correct else 0)
-                                break
-
                     # Fill in "standard" bias bins
                     if port_touched_angle is not None:
                         for bin_start in bias_bins:
@@ -433,16 +460,12 @@ def plot_performance_by_angle(sessions_input,
                                 bias_bins[bin_start].append(1)
                                 break
 
-                    # Fill in "incorrect-only" bias bins
-                    if is_timeout and timeout_handling == 'exclude':
-                        # Skip timeouts when building incorrect-only bias
-                        pass
-                    elif (not is_correct) and (port_touched_angle is not None):
+                    if (not is_correct) and (port_touched_angle is not None):
                         for bin_start in bias_incorrect_bins:
                             if bin_start <= port_touched_angle < bin_start + bin_size:
                                 bias_incorrect_bins[bin_start].append(1)
                                 break
-
+                
                 # Now calculate all metrics
                 bin_list = sorted(list(hit_rate_bins.keys()))
                 bin_centers = [b + bin_size / 2 for b in bin_list]
@@ -545,7 +568,12 @@ def plot_performance_by_angle(sessions_input,
                         mouse_data_dict[cue_group][mouse_id] = mouse_dprime
                     else:
                         mouse_data_dict[cue_group][mouse_id] = mouse_hit_rate
+                    
+                print(f"Mouse {mouse_id} in {cue_group} - Hit Rate: {(mouse_total_correct / (mouse_total_trials-excluded_trials))*100:.2f}%")
+                print(f"Excluded trials: {excluded_trials}")
 
+            print(f"Total success: {(total_correct/(len(total_trials)-total_excluded_trials))*100:.2f}% trials in {cue_group}")
+            print(f"Total excluded: {total_excluded_trials} trials in {cue_group}")
             # Compute across-mice statistics (normal flow)
             # Convert each measure to an array [mouse x angle_bin]
             hit_rate_array = np.array([
@@ -635,6 +663,11 @@ def plot_performance_by_angle(sessions_input,
                     error_data = np.append(plotting_data.bias_sem, plotting_data.bias_sem[0])
                 else:
                     raise ValueError(f"Unknown plot_type: {plot_type}")
+                
+                current_max = max(plot_data)
+                all_datasets_max = max(all_datasets_max, current_max)
+                current_min = min(plot_data)
+                all_datasets_min = min(all_datasets_min, current_min)
                 
                 # Pick colour for the line
                 if isinstance(sessions_input, dict) and len(sessions_dict) > 1:
@@ -746,9 +779,11 @@ def plot_performance_by_angle(sessions_input,
                 elif plot_type == 'dprime':
                     plot_data = plotting_data.dprime
                     error_data = plotting_data.dprime_sem
-                else:  # 'bias'
+                elif plot_type == 'bias':
                     plot_data = plotting_data.bias
                     error_data = plotting_data.bias_sem
+                else:
+                    raise ValueError(f"Unknown plot_type: {plot_type}")
 
                 # Pick colour for the line
                 if isinstance(sessions_input, dict) and len(sessions_dict) > 1:
@@ -796,8 +831,10 @@ def plot_performance_by_angle(sessions_input,
                             individual_data = data_sets.mice[mouse][cue_group].bias_incorrect
                         elif plot_type == 'dprime':
                             individual_data = data_sets.mice[mouse][cue_group].dprime
-                        else:  # 'bias'
+                        elif plot_type == 'bias':
                             individual_data = data_sets.mice[mouse][cue_group].bias
+                        else:
+                            raise ValueError(f"Unknown plot_type: {plot_type}")
                         
                         ax.plot(angles_deg, individual_data, 
                                label=f"Mouse {mouse}", linestyle='--', marker='o', alpha=0.7)
@@ -810,11 +847,11 @@ def plot_performance_by_angle(sessions_input,
     
     if plot_mode == 'radial':
         # Set y-limits based on plot type
-        if plot_type == 'dprime':
-            # D-prime has different scale
-            ax.set_ylim(-2, 5)  # Typical d-prime range
-        elif plot_type == 'bias' or plot_type == 'bias_incorrect' or plot_type == 'bias_corrected':
-            ax.set_ylim(0, max(plot_data) * 1.1 if len(plot_data) else 1)
+        if plot_type == 'bias' or plot_type == 'bias_incorrect' or plot_type == 'bias_corrected' or plot_type == 'dprime':
+            if all_datasets_min < 0:
+                ax.set_ylim(all_datasets_min * 1.1, all_datasets_max * 1.1 if len(plot_data) else 1)
+            else:
+                ax.set_ylim(0, all_datasets_max * 1.1 if len(plot_data) else 1)
         else:
             ax.set_ylim(0, 1)  # For standard hit_rate
 
@@ -842,55 +879,51 @@ def plot_performance_by_angle(sessions_input,
             ax.set_ylabel(y_title or 'Bias')
         elif plot_type == 'bias_corrected':
             ax.set_ylabel(y_title or 'Bias-Corrected Hit Rate')
-        else:
+        elif plot_type == 'hit_rate':
             ax.set_ylabel(y_title or 'Hit Rate')
             
         ax.set_xlim(limits[0], limits[1])
 
-        # Rescale Y axis if needed
-        if plot_type == 'dprime':
-            ax.set_ylim(-2, 5)  # Typical d-prime range
-        elif plot_type == 'bias_corrected':
-            ax.set_ylim(0, max(plot_data) * 1.1 if len(plot_data) else 1)
-        elif plot_type not in ('bias', 'bias_incorrect'):
-            ax.set_ylim(0, 1)
-
-    # Save if output_path is specified
-    if output_path is not None:
-        if not output_path.exists():
-            output_path.mkdir(parents=True, exist_ok=True)
-
-        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cue_modes_str = '_'.join(cue_modes)
-        
-        if draft:
-            base_filename = f"{date_time}_{plot_save_name}_{plot_type}_{cue_modes_str}"
+        # Set y-limits based on plot type
+        if plot_type == 'bias' or plot_type == 'bias_incorrect' or plot_type == 'bias_corrected' or plot_type == 'dprime':
+            if all_datasets_min < 0:
+                ax.set_ylim(all_datasets_min * 1.1, all_datasets_max * 1.1 if len(plot_data) else 1)
+            else:
+                ax.set_ylim(0, all_datasets_max * 1.1 if len(plot_data) else 1)
         else:
-            base_filename = f"final_{plot_save_name}_{plot_type}_{cue_modes_str}"
-            
-        output_filename_svg = f"{base_filename}.svg"
-        output_filename_png = f"{base_filename}.png"
+            ax.set_ylim(0, 1)  # For standard hit_rate
 
-        # If files already exist, append a counter
-        counter = 0
-        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
-            output_filename_svg = f"{base_filename}_{counter}.svg"
-            output_filename_png = f"{base_filename}_{counter}.png"
-            counter += 1
-
-        print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
-        plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
-
-        print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
-        plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
-
-    # Print circular statistics if calculated
     # Print circular statistics if calculated (not for d-prime)
+    stats_summary = None  # Initialise to track if we have stats
     if show_circular_stats and circular_stats_by_group and plot_type != 'dprime':
         # Call the utility function
         stats_summary = print_circular_statistics_summary(
             circular_stats_by_group=circular_stats_by_group,
             cue_modes=cue_modes
+        )
+
+# Save plot and statistics if output_path is specified
+    if output_path is not None:
+        save_plot_and_statistics(
+            output_path=output_path,
+            plot_save_name=plot_save_name,
+            draft=draft,
+            plot_type=plot_type,
+            cue_modes=cue_modes,
+            num_bins_used=num_bins_used,
+            trials_per_bin=trials_per_bin,
+            bin_mode=bin_mode,
+            plot_title=plot_title,
+            plot_mode=plot_mode,
+            sessions_input=sessions_input,
+            likelihood_threshold=likelihood_threshold,
+            timeout_handling=timeout_handling,
+            min_trial_duration=min_trial_duration,
+            error_bars=error_bars,
+            plot_individual_mice=plot_individual_mice,
+            exclusion_mice=exclusion_mice,
+            total_excluded_info=total_excluded_info,
+            stats_summary=stats_summary
         )
 
     plt.show()

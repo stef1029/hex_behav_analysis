@@ -106,12 +106,12 @@ def print_circular_statistics_summary(circular_stats_by_group, cue_modes):
                     group_names.append(dataset_name)
         
         # Debug output
-        print(f"\nFound {len(groups_data)} groups with data for {cue_group}")
-        if len(groups_data) < 2:
-            print(f"  Note: Between-group comparison requires at least 2 groups (found {len(groups_data)})")
-        elif len(groups_data) > 2:
-            n_comparisons = len(list(combinations(range(len(groups_data)), 2)))
-            print(f"  Will perform {n_comparisons} pairwise comparisons")
+        # print(f"\nFound {len(groups_data)} groups with data for {cue_group}")
+        # if len(groups_data) < 2:
+        #     print(f"  Note: Between-group comparison requires at least 2 groups (found {len(groups_data)})")
+        # elif len(groups_data) > 2:
+        #     n_comparisons = len(list(combinations(range(len(groups_data)), 2)))
+        #     print(f"  Will perform {n_comparisons} pairwise comparisons")
         
         # Print individual mouse statistics
         for i, (group_name, group_means) in enumerate(zip(group_names, groups_data)):
@@ -128,15 +128,15 @@ def print_circular_statistics_summary(circular_stats_by_group, cue_modes):
             }
             
             # Print individual mouse data
-            for mouse_id, mean, resultant in zip(stats.mouse_ids, 
-                                                 stats.mouse_means, 
-                                                 stats.mouse_resultants):
-                print(f"  {mouse_id}: mean = {mean:.1f}°, R = {resultant:.3f}")
-                summary_results['group_statistics'][cue_group][group_name]['mouse_data'].append({
-                    'mouse_id': mouse_id,
-                    'mean': mean,
-                    'resultant': resultant
-                })
+            # for mouse_id, mean, resultant in zip(stats.mouse_ids, 
+            #                                      stats.mouse_means, 
+            #                                      stats.mouse_resultants):
+            #     print(f"  {mouse_id}: mean = {mean:.1f}°, R = {resultant:.3f}")
+            #     summary_results['group_statistics'][cue_group][group_name]['mouse_data'].append({
+            #         'mouse_id': mouse_id,
+            #         'mean': mean,
+            #         'resultant': resultant
+            #     })
             
             # Calculate group-level statistics
             if stats.mouse_means:
@@ -483,3 +483,176 @@ def draw_polar_arrow(ax, angle_rad, length, color, linewidth=2, alpha=0.8,
                         facecolor=color, edgecolor=color, 
                         alpha=alpha, transform=ax.transData)
     ax.add_patch(arrow_head)
+
+def save_plot_and_statistics(output_path, plot_save_name, draft, plot_type, cue_modes, 
+                           num_bins_used, trials_per_bin, bin_mode, plot_title, plot_mode,
+                           sessions_input, likelihood_threshold, timeout_handling, 
+                           min_trial_duration, error_bars, plot_individual_mice,
+                           exclusion_mice, total_excluded_info, stats_summary):
+    """
+    Save plot files and statistics to the specified output directory.
+    
+    Parameters
+    ----------
+    output_path : Path
+        Directory to save files to
+    plot_save_name : str
+        Base name for saved files
+    draft : bool
+        Whether this is a draft (affects filename and overwrite behaviour)
+    plot_type : str
+        Type of plot being saved
+    cue_modes : list
+        List of cue modes analysed
+    num_bins_used : int
+        Number of bins used in analysis
+    trials_per_bin : int
+        Target trials per bin (for 'tpb' mode)
+    bin_mode : str
+        Binning mode used
+    plot_title : str
+        Title of the plot
+    plot_mode : str
+        Plot mode used
+    sessions_input : list or dict
+        Original sessions input
+    likelihood_threshold : float
+        Ear detection likelihood threshold used
+    timeout_handling : str or None
+        Timeout handling method used
+    min_trial_duration : float or None
+        Minimum trial duration filter used
+    error_bars : str
+        Error bar type used
+    plot_individual_mice : bool
+        Whether individual mice were plotted
+    exclusion_mice : list
+        List of excluded mice
+    total_excluded_info : ExclusionInfo
+        Exclusion statistics
+    stats_summary : dict or None
+        Circular statistics summary (None if not calculated)
+        
+    Returns
+    -------
+    tuple
+        (svg_path, png_path, stats_path, csv_path) - paths to saved files
+        csv_path will be None if no pairwise comparisons exist
+    """
+    import json
+    import csv
+    from datetime import datetime
+    
+    if not output_path.exists():
+        output_path.mkdir(parents=True, exist_ok=True)
+
+    date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    cue_modes_str = '_'.join(cue_modes)
+    
+    if draft:
+        base_filename = f"{date_time}_{plot_save_name}_{plot_type}_{cue_modes_str}"
+    else:
+        base_filename = f"final_{plot_save_name}_{plot_type}_{cue_modes_str}"
+        
+    output_filename_svg = f"{base_filename}.svg"
+    output_filename_png = f"{base_filename}.png"
+
+    # If files already exist, append a counter
+    if draft:
+        counter = 0
+        while (output_path / output_filename_svg).exists() or (output_path / output_filename_png).exists():
+            output_filename_svg = f"{base_filename}_{counter}.svg"
+            output_filename_png = f"{base_filename}_{counter}.png"
+            counter += 1
+
+    # Save plot files
+    print(f"Saving plot as SVG to: '{output_path / output_filename_svg}'")
+    plt.savefig(output_path / output_filename_svg, format='svg', bbox_inches='tight', transparent=True)
+
+    print(f"Saving plot as PNG to: '{output_path / output_filename_png}'")
+    plt.savefig(output_path / output_filename_png, format='png', bbox_inches='tight', transparent=True)
+
+    # Save statistics if available
+    stats_path = None
+    csv_path = None
+    
+    if stats_summary is not None:        
+        # Create stats filename
+        stats_filename = f"{base_filename}_stats.json"
+        
+        # Check if file exists and increment counter if needed
+        if draft:
+            counter = 0
+            while (output_path / stats_filename).exists():
+                stats_filename = f"{base_filename}_{counter}_stats.json"
+                counter += 1
+        
+        # Prepare comprehensive data for saving
+        stats_to_save = {
+            'metadata': {
+                'plot_title': plot_title,
+                'plot_type': plot_type,
+                'plot_mode': plot_mode,
+                'cue_modes': cue_modes,
+                'bin_mode': bin_mode,
+                'num_bins_used': num_bins_used,
+                'trials_per_bin': trials_per_bin if bin_mode == 'tpb' else None,
+                'date_generated': datetime.now().isoformat(),
+                'number_of_groups': len(sessions_input) if isinstance(sessions_input, dict) else 1,
+                'groups': list(sessions_input.keys()) if isinstance(sessions_input, dict) else ['Data'],
+                'likelihood_threshold': likelihood_threshold,
+                'timeout_handling': timeout_handling,
+                'min_trial_duration': min_trial_duration,
+                'error_bars': error_bars,
+                'plot_individual_mice': plot_individual_mice
+            },
+            'exclusion_info': {
+                'catch_trials_excluded': total_excluded_info.catch,
+                'too_quick_trials_excluded': total_excluded_info.too_quick,
+                'timeout_trials_excluded': total_excluded_info.timeout_excluded,
+                'mice_excluded_no_audio': total_excluded_info.no_audio_trials,
+                'manually_excluded_mice': exclusion_mice
+            },
+            'statistics': stats_summary
+        }
+        
+        # Save to JSON file
+        stats_path = output_path / stats_filename
+        with open(stats_path, 'w') as f:
+            json.dump(stats_to_save, f, indent=2, default=str)
+        
+        print(f"\nSaving statistics to: '{stats_path}'")
+        
+        # Also save a simplified CSV for pairwise comparisons (if they exist)
+        if stats_summary.get('pairwise_comparisons'):
+            csv_filename = f"{base_filename}_comparisons.csv"
+            
+            # Check if CSV exists
+            if draft: 
+                counter = 0
+                while (output_path / csv_filename).exists():
+                    csv_filename = f"{base_filename}_{counter}_comparisons.csv"
+                    counter += 1
+            
+            csv_path = output_path / csv_filename
+            with open(csv_path, 'w', newline='') as csvfile:
+                fieldnames = ['cue_group', 'group1', 'group2', 'group1_mean', 
+                              'group2_mean', 'F_statistic', 'p_value', 'significant']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for comparison in stats_summary['pairwise_comparisons']:
+                    # Round numerical values for cleaner CSV
+                    row = comparison.copy()
+                    row['group1_mean'] = round(row['group1_mean'], 2)
+                    row['group2_mean'] = round(row['group2_mean'], 2)
+                    row['F_statistic'] = round(row['F_statistic'], 3)
+                    row['p_value'] = round(row['p_value'], 4)
+                    writer.writerow(row)
+            
+            print(f"Saving comparison table to: '{csv_path}'")
+
+    return (output_path / output_filename_svg, 
+            output_path / output_filename_png, 
+            stats_path, 
+            csv_path)

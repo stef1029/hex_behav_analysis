@@ -943,20 +943,6 @@ class Session:
                         trial["video_frames"] = video_frames
                         trial["DLC_data"] = None
 
-                # also add the DLC data for the same time period, if it's been found:
-                # if self.DLC_coords is not None:
-                #     if len(video_frames) != 0:
-                #         try:
-                #             trial["DLC_data"] = self.DLC_coords.loc[video_frames[0]:video_frames[-1]]
-                #         except IndexError:
-                #             print(f"max dlc_coord = {len(self.DLC_coords)}")
-                #             print(f"max video_frames = {len(self.indexed_frametimes)}")
-                #             print(list(self.indexed_frametimes.keys())[-1])
-                #             print(f"num trials = {len(self.trials)}")
-                #             print(start, end)
-                #             raise Exception(f"error happening on trial {j}")
-                #     else:
-                #         trial["DLC_data"] = None
 
     def find_file(self, directory, tag):
         file_found = False

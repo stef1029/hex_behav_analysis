@@ -10,6 +10,26 @@ from colorama import Fore, Back, Style, init
 # Initialize colorama
 init(autoreset=True)
 
+# Global error collection
+ERROR_COLLECTION = []
+
+def collect_error(error_message, file_path=None, operation=None):
+    """
+    Collect an error message for summary reporting at the end.
+    
+    Args:
+        error_message (str): The error message
+        file_path (str or Path): Optional file path where error occurred
+        operation (str): Optional operation type where error occurred
+    """
+    error_entry = {
+        'timestamp': datetime.now().strftime("%H:%M:%S"),
+        'message': error_message,
+        'file_path': str(file_path) if file_path else None,
+        'operation': operation
+    }
+    ERROR_COLLECTION.append(error_entry)
+
 def log_info(message, verbose=True):
     """Print info message in blue"""
     if verbose:
@@ -25,15 +45,40 @@ def log_warning(message, verbose=True):
     if verbose:
         print(f"{Fore.YELLOW}{message}{Style.RESET_ALL}")
 
-def log_error(message, verbose=True):
-    """Print error message in red"""
+def log_error(message, verbose=True, file_path=None, operation=None):
+    """Print error message in red and collect for summary"""
     if verbose:
         print(f"{Fore.RED}{message}{Style.RESET_ALL}")
+    collect_error(message, file_path, operation)
 
 def log_debug(message, verbose=False):
     """Print debug message in cyan if verbose mode is enabled"""
     if verbose:
         print(f"{Fore.CYAN}{message}{Style.RESET_ALL}")
+
+def print_error_summary():
+    """Print a summary of all collected errors at the end of processing"""
+    if not ERROR_COLLECTION:
+        log_success("\n" + "="*80)
+        log_success("ERROR SUMMARY: No errors encountered during processing!")
+        log_success("="*80)
+        return
+    
+    print(f"\n{Fore.RED}{'='*80}")
+    print(f"ERROR SUMMARY: {len(ERROR_COLLECTION)} errors encountered during processing")
+    print(f"{'='*80}{Style.RESET_ALL}")
+    
+    for i, error in enumerate(ERROR_COLLECTION, 1):
+        print(f"\n{Fore.RED}Error #{i} [{error['timestamp']}]:{Style.RESET_ALL}")
+        if error['operation']:
+            print(f"  Operation: {error['operation']}")
+        if error['file_path']:
+            print(f"  File: {error['file_path']}")
+        print(f"  Message: {error['message']}")
+    
+    print(f"\n{Fore.RED}{'='*80}")
+    print(f"Total errors: {len(ERROR_COLLECTION)}")
+    print(f"{'='*80}{Style.RESET_ALL}")
 
 def is_already_processed(file_path, operation_type):
     """
@@ -88,7 +133,8 @@ def check_hdf5_integrity(hdf5_path, verbose=False):
                     sample = h5f['channel_data'][channel_keys[0]][0:10]
             return True
     except Exception as e:
-        log_error(f"HDF5 file {hdf5_path} exists but is corrupted: {str(e)}", verbose)
+        log_error(f"HDF5 file {hdf5_path} exists but is corrupted: {str(e)}", verbose, 
+                 file_path=hdf5_path, operation="hdf5_integrity_check")
         return False
 
 def check_json_integrity(json_path, verbose=False):
@@ -110,7 +156,8 @@ def check_json_integrity(json_path, verbose=False):
             data = json.load(f)
         return True, data
     except Exception as e:
-        log_error(f"JSON file {json_path} exists but is corrupted: {str(e)}", verbose)
+        log_error(f"JSON file {json_path} exists but is corrupted: {str(e)}", verbose,
+                 file_path=json_path, operation="json_integrity_check")
         return False, None
 
 def recover_frame_ids(json_file_path, verbose=False):
@@ -167,7 +214,8 @@ def recover_frame_ids(json_file_path, verbose=False):
         log_debug(f"Backup file exists: {backup_path.exists()}", verbose)
         
         if not backup_path.exists():
-            log_error(f"Backup file not found: {backup_path}", verbose)
+            log_error(f"Backup file not found: {backup_path}", verbose,
+                     file_path=backup_path, operation="frame_id_recovery")
             return False
             
         log_info(f"\nProcessing {json_path.name}", verbose)
@@ -185,7 +233,8 @@ def recover_frame_ids(json_file_path, verbose=False):
                     continue
         
         if not frame_ids:
-            log_error("No valid frame IDs found in backup file", verbose)
+            log_error("No valid frame IDs found in backup file", verbose,
+                     file_path=backup_path, operation="frame_id_recovery")
             return False
             
         log_info(f"Found {len(frame_ids)} frame IDs", verbose)
@@ -295,7 +344,8 @@ def recover_frame_ids(json_file_path, verbose=False):
         return True
         
     except Exception as e:
-        log_error(f"Error processing {json_file_path}: {str(e)}", verbose)
+        log_error(f"Error processing {json_file_path}: {str(e)}", verbose,
+                 file_path=json_file_path, operation="frame_id_recovery")
         return False
     
 
@@ -318,7 +368,9 @@ def recover_from_backup(backup_file_path, verbose=False):
     """
     backup_path = Path(backup_file_path)
     if not backup_path.exists():
-        raise FileNotFoundError(f"Backup file not found: {backup_file_path}")
+        error_msg = f"Backup file not found: {backup_file_path}"
+        log_error(error_msg, verbose, file_path=backup_file_path, operation="hdf5_conversion")
+        raise FileNotFoundError(error_msg)
         
     # Check if already processed
     if is_already_processed(backup_path, "hdf5_conversion"):
@@ -399,7 +451,7 @@ def recover_from_backup(backup_file_path, verbose=False):
                     message_data = int(row[1])
                     
                     # Check message data bit length to track statistics
-                    bit_length = message_data.bit_length()
+                    bit_length = int(message_data).bit_length()
                     message_length_stats[bit_length] = message_length_stats.get(bit_length, 0) + 1
                     
                     messages_from_arduino.append([message_id, message_data])
@@ -439,7 +491,9 @@ def recover_from_backup(backup_file_path, verbose=False):
                 log_warning(f"Found {invalid_timestamp_count} invalid timestamps", verbose)
                     
         if not messages_from_arduino:
-            raise ValueError("No valid data could be parsed from the CSV file")
+            error_msg = "No valid data could be parsed from the CSV file"
+            log_error(error_msg, verbose, file_path=backup_path, operation="hdf5_conversion")
+            raise ValueError(error_msg)
         
         # Log message length statistics
         if verbose and message_length_stats:
@@ -455,7 +509,8 @@ def recover_from_backup(backup_file_path, verbose=False):
             actual_timestamps = []
             
     except Exception as e:
-        log_error(f"Error reading backup file: {str(e)}", verbose)
+        log_error(f"Error reading backup file: {str(e)}", verbose,
+                 file_path=backup_path, operation="hdf5_conversion")
         return False
     
     # Channel definitions
@@ -484,15 +539,15 @@ def recover_from_backup(backup_file_path, verbose=False):
     
     for i, message in enumerate(message_data):
         # Check if message is too long (indicates corruption)
-        if message.bit_length() > num_channels:
+        if int(message).bit_length() > num_channels:
             skipped_long_messages += 1
             if skipped_long_messages <= 5:  # Only log first few occurrences
-                log_debug(f"Message {i}: Skipped message with {message.bit_length()} bits (> {num_channels})", verbose)
+                log_debug(f"Message {i}: Skipped message with {int(message).bit_length()} bits (> {num_channels})", verbose)
             continue
         
         # Convert to binary representation with proper zero-padding
         # Always pad to num_channels width to handle leading zeros correctly
-        binary_repr = np.binary_repr(message, width=num_channels)
+        binary_repr = np.binary_repr(int(message), width=num_channels)
         binary_array = np.array(list(binary_repr), dtype=np.uint8)
         binary_array = binary_array[::-1]  # Reverse for little-endian
         
@@ -501,7 +556,9 @@ def recover_from_backup(backup_file_path, verbose=False):
     
     # Create channel data array from valid messages only
     if not valid_messages:
-        raise ValueError("No valid messages found after filtering")
+        error_msg = "No valid messages found after filtering"
+        log_error(error_msg, verbose, file_path=backup_path, operation="hdf5_conversion")
+        raise ValueError(error_msg)
         
     channel_data_array = np.array(valid_messages, dtype=np.uint8)
     
@@ -545,7 +602,8 @@ def recover_from_backup(backup_file_path, verbose=False):
                 hdf5_path.unlink()
                 log_warning(f"Removed corrupted HDF5 file: {hdf5_path}", verbose)
             except Exception as e:
-                log_error(f"Could not remove existing corrupted file: {str(e)}", verbose)
+                log_error(f"Could not remove existing corrupted file: {str(e)}", verbose,
+                         file_path=hdf5_path, operation="hdf5_conversion")
                 # If we can't remove it, try a different name
                 hdf5_path = backup_path.parent / f"{folder_name}-ArduinoDAQ_recovered.h5"
                 log_warning(f"Will use alternative file name: {hdf5_path}", verbose)
@@ -585,11 +643,13 @@ def recover_from_backup(backup_file_path, verbose=False):
             mark_as_processed(backup_path, "hdf5_conversion", verbose)
             return True
         else:
-            log_error(f"Created HDF5 file but verification failed: {hdf5_path}", verbose)
+            log_error(f"Created HDF5 file but verification failed: {hdf5_path}", verbose,
+                     file_path=hdf5_path, operation="hdf5_conversion")
             return False
             
     except Exception as e:
-        log_error(f"Error saving HDF5 file: {str(e)}", verbose)
+        log_error(f"Error saving HDF5 file: {str(e)}", verbose,
+                 file_path=hdf5_path, operation="hdf5_conversion")
         return False
 
 def process_session_folder(session_path, verbose=False):
@@ -626,7 +686,8 @@ def process_session_folder(session_path, verbose=False):
             else:
                 log_debug(f"No action needed for Arduino backup: {backup}", verbose)
         except Exception as e:
-            log_error(f"Error processing Arduino backup {backup}: {str(e)}", verbose)
+            log_error(f"Error processing Arduino backup {backup}: {str(e)}", verbose,
+                     file_path=backup, operation="arduino_backup_processing")
     
     # Process camera frame ID backups
     tracker_jsons = list(session_path.glob("*_Tracker_data.json"))
@@ -652,7 +713,8 @@ def process_session_folder(session_path, verbose=False):
             else:
                 log_debug(f"No action needed for camera data: {json_file}", verbose)
         except Exception as e:
-            log_error(f"Error processing camera data {json_file}: {str(e)}", verbose)
+            log_error(f"Error processing camera data {json_file}: {str(e)}", verbose,
+                     file_path=json_file, operation="tracker_data_processing")
     
     return num_processed_arduino, num_processed_tracker
 
@@ -671,6 +733,10 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
     Returns:
         dict: Summary of processed files
     """
+    # Clear previous error collection at the start of processing
+    global ERROR_COLLECTION
+    ERROR_COLLECTION = []
+    
     results = {
         'arduino_processed': 0,
         'tracker_processed': 0,
@@ -682,7 +748,8 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
     try:
         directory = Path(directory)
         if not directory.exists():
-            log_error(f"Directory not found: {directory}", verbose)
+            log_error(f"Directory not found: {directory}", verbose,
+                     file_path=directory, operation="directory_validation")
             return results
         
         # If force is True, remove all marker files first, optionally only for target sessions
@@ -709,7 +776,8 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
                     marker.unlink()
                     log_debug(f"Removed marker file: {marker}", verbose)
                 except Exception as e:
-                    log_error(f"Could not remove marker file {marker}: {str(e)}", verbose)
+                    log_error(f"Could not remove marker file {marker}: {str(e)}", verbose,
+                             file_path=marker, operation="marker_file_removal")
                     results['errors'] += 1
         
         # Define a function to check if a folder is a target session
@@ -789,6 +857,9 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
                     if arduino_count > 0 or tracker_count > 0:
                         results['sessions_processed'] += 1
         
+        # Update error count from collected errors
+        results['errors'] = len(ERROR_COLLECTION)
+        
         if verbose:
             log_success("\nRecovery process summary:")
             log_success(f"  Target sessions found: {results['sessions_found']}")
@@ -796,12 +867,20 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
             log_success(f"  Arduino DAQ files processed: {results['arduino_processed']}")
             log_success(f"  Tracker JSON files processed: {results['tracker_processed']}")
             log_warning(f"  Errors encountered: {results['errors']}")
+        
+        # Always print error summary at the end
+        print_error_summary()
             
         return results
             
     except Exception as e:
-        log_error(f"Error processing cohort folder: {str(e)}", verbose)
-        results['errors'] += 1
+        log_error(f"Error processing cohort folder: {str(e)}", verbose,
+                 file_path=directory, operation="cohort_processing")
+        results['errors'] = len(ERROR_COLLECTION)
+        
+        # Always print error summary even if main exception occurs
+        print_error_summary()
+        
         return results
 
 # Example usage if imported:
@@ -810,6 +889,7 @@ def recover_crashed_sessions(directory, target_sessions=None, force=False, verbo
 # print(f"Processed {results['arduino_processed']} Arduino files and {results['tracker_processed']} tracker files")
 
 def main():
+    """Main function to execute the recovery script with predefined parameters."""
     # Manual usage of script:
 
     cohort_directory = r"/cephfs2/srogers/Behaviour code/2409_September_cohort/DATA_ArduinoDAQ"
@@ -818,8 +898,20 @@ def main():
 
     # target_sessions = ["241017_151131"]  # Example target sessions
     target_sessions = None
-    results = recover_crashed_sessions(cohort_directory, force=force_reprocess, verbose=verbose_mode, target_sessions=target_sessions)
-    print(f"Processed {results['arduino_processed']} Arduino files and {results['tracker_processed']} tracker files")
+    
+    try:
+        results = recover_crashed_sessions(cohort_directory, force=force_reprocess, 
+                                         verbose=verbose_mode, target_sessions=target_sessions)
+        
+        # Print summary
+        print(f"\nProcessed {results['arduino_processed']} Arduino files and {results['tracker_processed']} tracker files")
+        
+        # Always print error summary at the end
+        print_error_summary()
+        
+    except Exception as e:
+        log_error(f"Fatal error in main execution: {str(e)}", True, operation="main_execution")
+        print_error_summary()
 
 if __name__ == "__main__":
     main()
